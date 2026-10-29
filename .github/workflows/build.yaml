@@ -34,6 +34,9 @@ jobs:
         shell: pwsh
         run: |
           git clone --depth 1 --branch ${{ env.OBS_TAG }} https://github.com/obsproject/obs-studio obs-studio
+          # Shallow clones don't include submodules; obs-studio's configure checks
+          # for obs-browser/obs-websocket even when they're disabled.
+          git -C obs-studio submodule update --init --depth 1
           # The deps archives may extract flat or under a single top-level
           # folder; list the common candidates so either layout resolves.
           cmake -S obs-studio -B obs-studio/build -G "Visual Studio 17 2022" -A x64 `
@@ -89,6 +92,9 @@ jobs:
       - name: Build and install libobs (OBS ${{ env.OBS_TAG }})
         run: |
           git clone --depth 1 --branch ${{ env.OBS_TAG }} https://github.com/obsproject/obs-studio obs-studio
+          # Shallow clones don't include submodules; obs-studio's configure checks
+          # for obs-browser/obs-websocket even when they're disabled.
+          git -C obs-studio submodule update --init --depth 1
           cmake -S obs-studio -B obs-studio/build -G "Xcode" \
             "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/deps;${{ github.workspace }}/deps/macos;${{ github.workspace }}/deps/universal;${{ github.workspace }}/deps/macos-arm64" \
             -DENABLE_UI=OFF -DENABLE_SCRIPTING=OFF -DBUILD_TESTS=OFF \
@@ -133,6 +139,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential git cmake ninja-build pkg-config \
             extra-cmake-modules \
+            uthash-dev libjansson-dev \
             libx11-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev \
             libxcb-xfixes0-dev libxcb-xinerama0-dev \
             libxcomposite-dev libxdamage-dev libxrandr-dev libxfixes-dev \
@@ -145,6 +152,9 @@ jobs:
       - name: Build and install libobs (OBS ${{ env.OBS_TAG }})
         run: |
           git clone --depth 1 --branch ${{ env.OBS_TAG }} https://github.com/obsproject/obs-studio obs-studio
+          # Shallow clones don't include submodules; obs-studio's configure checks
+          # for obs-browser/obs-websocket even when they're disabled.
+          git -C obs-studio submodule update --init --depth 1
           cmake -S obs-studio -B obs-studio/build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DENABLE_UI=OFF -DENABLE_SCRIPTING=OFF -DBUILD_TESTS=OFF \
