@@ -42,7 +42,7 @@ jobs:
           cmake -S obs-studio -B obs-studio/build -G "Visual Studio 17 2022" -A x64 `
             "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/deps;${{ github.workspace }}/deps/win-x64;${{ github.workspace }}/deps/x64;${{ github.workspace }}/deps/windows-x64" `
             -DENABLE_UI=OFF -DENABLE_SCRIPTING=OFF -DBUILD_TESTS=OFF `
-            -DENABLE_BROWSER=OFF -DENABLE_WEBSOCKET=OFF
+            -DENABLE_BROWSER=OFF -DENABLE_WEBSOCKET=OFF -DENABLE_AJA=OFF
           # OBS's multi-arch layout puts the companion x86 pass in build_x86
           # and the native x64 libobs in build (obs-studio/build_x64 in some
           # configs) - pick whichever actually contains the project.
@@ -149,7 +149,7 @@ jobs:
           cmake -S obs-studio -B obs-studio/build -G "Xcode" \
             "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/deps;${{ github.workspace }}/deps/macos;${{ github.workspace }}/deps/universal;${{ github.workspace }}/deps/macos-arm64" \
             -DENABLE_UI=OFF -DENABLE_SCRIPTING=OFF -DBUILD_TESTS=OFF \
-            -DENABLE_BROWSER=OFF -DENABLE_WEBSOCKET=OFF
+            -DENABLE_BROWSER=OFF -DENABLE_WEBSOCKET=OFF -DENABLE_AJA=OFF
           cmake --build obs-studio/build --config RelWithDebInfo --target libobs
           cmake --install obs-studio/build --prefix "${{ github.workspace }}/libobs-prefix" \
             --config RelWithDebInfo --component libobs
@@ -222,6 +222,7 @@ jobs:
             uuid-dev libglvnd-dev libxcb-dri3-dev libxcb-present-dev libxcb-sync-dev libxshmfence-dev \
             libx11-xcb-dev libgbm-dev libdrm-dev \
             libpulse-dev libxcb-xinput-dev \
+            libfreetype6-dev libx264-dev \
             libx11-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev \
             libxcb-xfixes0-dev libxcb-xinerama0-dev \
             libxcomposite-dev libxdamage-dev libxrandr-dev libxfixes-dev \
@@ -240,7 +241,7 @@ jobs:
           cmake -S obs-studio -B obs-studio/build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DENABLE_UI=OFF -DENABLE_SCRIPTING=OFF -DBUILD_TESTS=OFF \
-            -DENABLE_BROWSER=OFF -DENABLE_WEBSOCKET=OFF
+            -DENABLE_BROWSER=OFF -DENABLE_WEBSOCKET=OFF -DENABLE_AJA=OFF
           cmake --build obs-studio/build --target libobs
           cmake --install obs-studio/build --prefix "${{ github.workspace }}/libobs-prefix" --component libobs
 

@@ -352,7 +352,7 @@ static void nb_update(void *data, obs_data_t *settings)
 	f->shades_p = (float)obs_data_get_double(settings, "shades_p");
 	f->target_hue = (float)obs_data_get_double(settings, "target_hue");
 	f->target_luminance = (float)obs_data_get_double(settings, "target_luminance") / 100.0f;
-	f->sample_radius = obs_data_get_int(settings, "sample_radius");
+	f->sample_radius = (long)obs_data_get_int(settings, "sample_radius");
 	f->has_sample = obs_data_get_bool(settings, "has_sample");
 	f->last_sample[0] = (float)obs_data_get_double(settings, "last_sample_r");
 	f->last_sample[1] = (float)obs_data_get_double(settings, "last_sample_g");
@@ -411,7 +411,7 @@ static void nb_video_render(void *data, gs_effect_t *effect)
 
 	if (!want_input) {
 		/* Zero-copy path (FR-03): no texture analysis or capture pending. */
-		if (!obs_source_process_filter_begin(f->context, GS_RGBA))
+		if (!obs_source_process_filter_begin(f->context, GS_RGBA, OBS_ALLOW_DIRECT_RENDERING))
 			return;
 
 		nb_set_effect_params(f);
@@ -465,7 +465,7 @@ static enum gs_color_space nb_video_get_color_space(void *data, size_t count,
 
 static bool method_modified(obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
 {
-	const long method = obs_data_get_int(settings, "method");
+	const long method = (long)obs_data_get_int(settings, "method");
 
 	obs_property_set_visible(obs_properties_get(props, "shades_p"), method == NB_METHOD_SHADES_OF_GREY);
 	obs_property_set_visible(obs_properties_get(props, "pick_neutral"), method == NB_METHOD_MANUAL);
@@ -545,7 +545,7 @@ static void nb_set_status_text(obs_properties_t *props, struct neutral_balance *
 		return;
 
 	if (!f || !f->has_sample) {
-		obs_property_set_text(status, obs_module_text("NoSample"));
+		obs_property_set_description(status, obs_module_text("NoSample"));
 		return;
 	}
 
@@ -554,7 +554,7 @@ static void nb_set_status_text(obs_properties_t *props, struct neutral_balance *
 		 "Last sample: R %.0f G %.0f B %.0f  |  Gains: R %.2f / G %.2f / B %.2f",
 		 f->last_sample[0] * 255.0f, f->last_sample[1] * 255.0f, f->last_sample[2] * 255.0f,
 		 (double)f->gains[0], (double)f->gains[1], (double)f->gains[2]);
-	obs_property_set_text(status, text);
+	obs_property_set_description(status, text);
 }
 
 static obs_properties_t *nb_properties(void *data)
