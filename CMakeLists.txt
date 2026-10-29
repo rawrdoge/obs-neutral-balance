@@ -25,8 +25,11 @@ target_link_libraries(obs-neutral-balance PRIVATE OBS::libobs)
 
 set_target_properties(obs-neutral-balance PROPERTIES
 	PREFIX ""
-	C_STANDARD 11
+	C_STANDARD 17
+	C_STANDARD_REQUIRED ON
+	C_EXTENSIONS OFF
 	CXX_STANDARD 17
+	CXX_STANDARD_REQUIRED ON
 )
 
 if(MSVC)
