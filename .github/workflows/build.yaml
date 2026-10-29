@@ -43,10 +43,13 @@ jobs:
             "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/deps;${{ github.workspace }}/deps/win-x64;${{ github.workspace }}/deps/x64;${{ github.workspace }}/deps/windows-x64" `
             -DENABLE_UI=OFF -DENABLE_SCRIPTING=OFF -DBUILD_TESTS=OFF `
             -DENABLE_BROWSER=OFF -DENABLE_WEBSOCKET=OFF
-          # With the VS generator obs-studio generates per-arch subdirs; the
-          # x64 libobs lives in build_x64.
-          cmake --build obs-studio/build_x64 --config RelWithDebInfo --target libobs
-          cmake --install obs-studio/build_x64 --prefix "${{ github.workspace }}/libobs-prefix" `
+          # OBS's multi-arch layout puts the companion x86 pass in build_x86
+          # and the native x64 libobs in build (obs-studio/build_x64 in some
+          # configs) - pick whichever actually contains the project.
+          $archDir = "obs-studio/build"
+          if (Test-Path "obs-studio/build_x64/libobs.vcxproj") { $archDir = "obs-studio/build_x64" }
+          cmake --build $archDir --config RelWithDebInfo --target libobs
+          cmake --install $archDir --prefix "${{ github.workspace }}/libobs-prefix" `
             --config RelWithDebInfo --component libobs
 
       - name: Build plugin
