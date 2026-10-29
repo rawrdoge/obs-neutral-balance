@@ -150,6 +150,7 @@ jobs:
             libv4l-dev libspeexdsp-dev \
             libavfilter-dev libavdevice-dev libpostproc-dev \
             libva-dev libva-drm2 libva-glx2 libva-x11-2 \
+            libmbedtls-dev \
             libpci-dev \
             libx11-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev \
             libxcb-xfixes0-dev libxcb-xinerama0-dev \
