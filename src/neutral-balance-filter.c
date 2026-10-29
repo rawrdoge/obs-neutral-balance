@@ -401,7 +401,7 @@ static void nb_video_render(void *data, gs_effect_t *effect)
 		return;
 
 	if (!f->effect)
-		nb_load_effect();
+		nb_load_effect(f);
 	if (!f->effect) {
 		obs_source_video_render(target);
 		return;
