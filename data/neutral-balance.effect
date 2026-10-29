@@ -1,0 +1,60 @@
+uniform float4x4 ViewProj;
+uniform texture2d image;
+
+uniform float3 gains;   /* per-channel white balance gains */
+uniform float hue_bias; /* target neutral hue, degrees (YIQ rotation) */
+uniform float lum_bias; /* additive lightness bias around middle gray */
+
+sampler_state linear_sampler {
+	Filter = Linear;
+	AddressU = Clamp;
+	AddressV = Clamp;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv : TEXCOORD0;
+};
+
+VertData mainvertex(VertData v)
+{
+	VertData o;
+	o.pos = mul(float4(v.pos.xyz, 1.0), ViewProj);
+	o.uv = v.uv;
+	return o;
+}
+
+/* Rotate hue around the Y (luma) axis - a cheap approximation of the
+ * perceptual hue control in darktable's color calibration module. */
+float3 hue_rotate(float3 color, float deg)
+{
+	float rad = radians(deg);
+	float y = dot(color, float3(0.299, 0.587, 0.114));
+	float i = dot(color, float3(0.595716, -0.274453, -0.321263));
+	float q = dot(color, float3(0.211456, -0.522591, 0.311135));
+	float c = cos(rad);
+	float s = sin(rad);
+	float i2 = i * c - q * s;
+	float q2 = i * s + q * c;
+	float3 rgb = float3(1.0, 0.956, 1.621) * y + float3(1.0, -0.272, -0.647) * i2 +
+		     float3(1.0, -1.106, 1.703) * q2;
+	return saturate(rgb);
+}
+
+float4 mainpixel(VertData v) : SV_Target
+{
+	float4 c = image.Sample(linear_sampler, v.uv);
+	c.rgb = saturate(c.rgb * gains);
+	c.rgb = hue_rotate(c.rgb, hue_bias);
+	c.rgb = saturate(c.rgb + lum_bias);
+	return c;
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = mainvertex(v);
+		pixel_shader = mainpixel(v);
+	}
+}

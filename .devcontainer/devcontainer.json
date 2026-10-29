@@ -1,0 +1,20 @@
+{
+  "name": "obs-neutral-balance",
+  "image": "mcr.microsoft.com/devcontainers/cpp:1-ubuntu-24.04",
+  "remoteUser": "vscode",
+  "extensions": ["saoudrizwan.claude-dev"],
+  "mounts": ["source=obs-neutral-balance-ccache,target=/home/vscode/.ccache,type=volume"],
+  "containerEnv": { "CCACHE_DIR": "/home/vscode/.ccache" },
+  "remoteEnv": { "SSH_AUTH_SOCK": "" },
+  "shutdownAction": "stopContainer",
+  "initializeCommand": "df /var/lib/docker | awk 'NR==2{print $5}' | grep -q '9[0-9]%' && echo 'docker.img nearly full' && exit 1 || true",
+  "postStartCommand": "test -d /workspaces/libobs-install || echo 'NOTE: libobs build tree missing — ask Cline to build OBS 31.1.1 per CI workflow'",
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y qt6-base-dev libgl1-mesa-dev && git config --global --add safe.directory ${containerWorkspaceFolder}",
+  "runArgs": [
+    "--memory", "8g",
+    "--cpus", "2",
+    "--name", "obs-neutral-balance-dev",
+    "--label", "maintenance.purpose=devcontainer",
+    "--label", "maintenance.project=obs-neutral-balance"
+  ]
+}
