@@ -52,6 +52,52 @@ jobs:
           cmake --install $archDir --prefix "${{ github.workspace }}/libobs-prefix" `
             --config RelWithDebInfo --component libobs
 
+      - name: Ensure libobs CMake package config
+        shell: pwsh
+        run: |
+          $cfg = Get-ChildItem -Path "${{ github.workspace }}/libobs-prefix" -Recurse -Filter libobsConfig.cmake -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($cfg) {
+            Write-Host "Using libobs config: $($cfg.FullName)"
+          } else {
+            $dir = "${{ github.workspace }}/libobs-prefix/lib/cmake/libobs"
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            @'
+# Synthesized minimal libobs package config (CI fallback)
+get_filename_component(_IMPORT_PREFIX "${CMAKE_CURRENT_LIST_FILE}" PATH)
+get_filename_component(_IMPORT_PREFIX "${_IMPORT_PREFIX}" PATH)
+get_filename_component(_IMPORT_PREFIX "${_IMPORT_PREFIX}" PATH)
+get_filename_component(_IMPORT_PREFIX "${_IMPORT_PREFIX}" PATH)
+if(NOT TARGET OBS::libobs)
+  add_library(OBS::libobs SHARED IMPORTED)
+  if(WIN32)
+    set_target_properties(OBS::libobs PROPERTIES
+      IMPORTED_IMPLIB "${_IMPORT_PREFIX}/lib/obs.lib"
+      IMPORTED_LOCATION "${_IMPORT_PREFIX}/bin/obs.dll"
+      INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/obs")
+  elseif(APPLE)
+    find_library(_LIBOBS_FWK libobs PATHS "${_IMPORT_PREFIX}/Library/Frameworks" "${_IMPORT_PREFIX}/lib")
+    if(_LIBOBS_FWK)
+      set_target_properties(OBS::libobs PROPERTIES
+        IMPORTED_LOCATION "${_LIBOBS_FWK}"
+        INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/obs")
+      unset(_LIBOBS_FWK CACHE)
+    else()
+      set_target_properties(OBS::libobs PROPERTIES
+        IMPORTED_LOCATION "${_IMPORT_PREFIX}/lib/libobs.dylib"
+        INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/obs")
+    endif()
+  else()
+    set_target_properties(OBS::libobs PROPERTIES
+      IMPORTED_LOCATION "${_IMPORT_PREFIX}/lib/libobs.so"
+      INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/obs")
+  endif()
+endif()
+set(libobs_FOUND TRUE)
+'@ | Out-File (Join-Path $dir 'libobsConfig.cmake') -Encoding ascii
+            Write-Host "Synthesized libobs config at $dir"
+          }
+
+
       - name: Build plugin
         shell: pwsh
         run: |
@@ -105,6 +151,49 @@ jobs:
           cmake --build obs-studio/build --config RelWithDebInfo --target libobs
           cmake --install obs-studio/build --prefix "${{ github.workspace }}/libobs-prefix" \
             --config RelWithDebInfo --component libobs
+
+      - name: Ensure libobs CMake package config
+        run: |
+          if find libobs-prefix -name libobsConfig.cmake | grep -q .; then
+            echo "libobs config present"
+          else
+            mkdir -p libobs-prefix/lib/cmake/libobs
+            cat > libobs-prefix/lib/cmake/libobs/libobsConfig.cmake <<'OBS_CMAKE_EOF'
+# Synthesized minimal libobs package config (CI fallback)
+get_filename_component(_IMPORT_PREFIX "${CMAKE_CURRENT_LIST_FILE}" PATH)
+get_filename_component(_IMPORT_PREFIX "${_IMPORT_PREFIX}" PATH)
+get_filename_component(_IMPORT_PREFIX "${_IMPORT_PREFIX}" PATH)
+get_filename_component(_IMPORT_PREFIX "${_IMPORT_PREFIX}" PATH)
+if(NOT TARGET OBS::libobs)
+  add_library(OBS::libobs SHARED IMPORTED)
+  if(WIN32)
+    set_target_properties(OBS::libobs PROPERTIES
+      IMPORTED_IMPLIB "${_IMPORT_PREFIX}/lib/obs.lib"
+      IMPORTED_LOCATION "${_IMPORT_PREFIX}/bin/obs.dll"
+      INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/obs")
+  elseif(APPLE)
+    find_library(_LIBOBS_FWK libobs PATHS "${_IMPORT_PREFIX}/Library/Frameworks" "${_IMPORT_PREFIX}/lib")
+    if(_LIBOBS_FWK)
+      set_target_properties(OBS::libobs PROPERTIES
+        IMPORTED_LOCATION "${_LIBOBS_FWK}"
+        INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/obs")
+      unset(_LIBOBS_FWK CACHE)
+    else()
+      set_target_properties(OBS::libobs PROPERTIES
+        IMPORTED_LOCATION "${_IMPORT_PREFIX}/lib/libobs.dylib"
+        INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/obs")
+    endif()
+  else()
+    set_target_properties(OBS::libobs PROPERTIES
+      IMPORTED_LOCATION "${_IMPORT_PREFIX}/lib/libobs.so"
+      INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/obs")
+  endif()
+endif()
+set(libobs_FOUND TRUE)
+OBS_CMAKE_EOF
+            echo "synthesized libobs config"
+          fi
+
 
       - name: Build plugin
         run: |
@@ -164,6 +253,49 @@ jobs:
             -DENABLE_BROWSER=OFF -DENABLE_WEBSOCKET=OFF
           cmake --build obs-studio/build --target libobs
           cmake --install obs-studio/build --prefix "${{ github.workspace }}/libobs-prefix" --component libobs
+
+      - name: Ensure libobs CMake package config
+        run: |
+          if find libobs-prefix -name libobsConfig.cmake | grep -q .; then
+            echo "libobs config present"
+          else
+            mkdir -p libobs-prefix/lib/cmake/libobs
+            cat > libobs-prefix/lib/cmake/libobs/libobsConfig.cmake <<'OBS_CMAKE_EOF'
+# Synthesized minimal libobs package config (CI fallback)
+get_filename_component(_IMPORT_PREFIX "${CMAKE_CURRENT_LIST_FILE}" PATH)
+get_filename_component(_IMPORT_PREFIX "${_IMPORT_PREFIX}" PATH)
+get_filename_component(_IMPORT_PREFIX "${_IMPORT_PREFIX}" PATH)
+get_filename_component(_IMPORT_PREFIX "${_IMPORT_PREFIX}" PATH)
+if(NOT TARGET OBS::libobs)
+  add_library(OBS::libobs SHARED IMPORTED)
+  if(WIN32)
+    set_target_properties(OBS::libobs PROPERTIES
+      IMPORTED_IMPLIB "${_IMPORT_PREFIX}/lib/obs.lib"
+      IMPORTED_LOCATION "${_IMPORT_PREFIX}/bin/obs.dll"
+      INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/obs")
+  elseif(APPLE)
+    find_library(_LIBOBS_FWK libobs PATHS "${_IMPORT_PREFIX}/Library/Frameworks" "${_IMPORT_PREFIX}/lib")
+    if(_LIBOBS_FWK)
+      set_target_properties(OBS::libobs PROPERTIES
+        IMPORTED_LOCATION "${_LIBOBS_FWK}"
+        INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/obs")
+      unset(_LIBOBS_FWK CACHE)
+    else()
+      set_target_properties(OBS::libobs PROPERTIES
+        IMPORTED_LOCATION "${_IMPORT_PREFIX}/lib/libobs.dylib"
+        INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/obs")
+    endif()
+  else()
+    set_target_properties(OBS::libobs PROPERTIES
+      IMPORTED_LOCATION "${_IMPORT_PREFIX}/lib/libobs.so"
+      INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/obs")
+  endif()
+endif()
+set(libobs_FOUND TRUE)
+OBS_CMAKE_EOF
+            echo "synthesized libobs config"
+          fi
+
 
       - name: Build plugin
         run: |
