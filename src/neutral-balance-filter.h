@@ -15,13 +15,12 @@
 
 #pragma once
 
-#include <stdatomic.h>
-
 #include <obs.h>
 #include <obs-source.h>
 #include <graphics/graphics.h>
 #include <graphics/vec3.h>
 #include <util/platform.h>
+#include <util/threading.h>
 
 enum nb_method {
 	NB_METHOD_GREY_WORLD = 0,
@@ -55,7 +54,7 @@ struct neutral_balance {
 	gs_stagesurf_t *capture_surface;
 	uint32_t capture_w, capture_h;
 	uint8_t *capture_buf; /* owned, freed in destroy */
-	atomic_bool capture_requested;
+	volatile bool capture_requested;
 	volatile bool capture_ready;
 	os_event_t *capture_done;
 

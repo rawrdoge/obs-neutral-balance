@@ -216,6 +216,7 @@ jobs:
             build-essential git cmake ninja-build pkg-config \
             extra-cmake-modules \
             uthash-dev libjansson-dev \
+            uuid-dev libglvnd-dev libxcb-dri3-dev libxcb-present-dev libxcb-sync-dev libxshmfence-dev \
             libx11-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev \
             libxcb-xfixes0-dev libxcb-xinerama0-dev \
             libxcomposite-dev libxdamage-dev libxrandr-dev libxfixes-dev \

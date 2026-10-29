@@ -266,7 +266,7 @@ static bool nb_request_capture(struct neutral_balance *f, uint8_t **out_buf, uin
 {
 	f->capture_ready = false;
 	os_event_reset(f->capture_done);
-	atomic_store(&f->capture_requested, true);
+	f->capture_requested = true;
 
 	/* Wait up to ~2 s; if the source is hidden or removed the filter never
 	 * renders and we must not block the UI thread (NFR-02). */
@@ -284,7 +284,7 @@ static bool nb_request_capture(struct neutral_balance *f, uint8_t **out_buf, uin
 		os_event_timedwait(f->capture_done, 50);
 	}
 
-	atomic_store(&f->capture_requested, false);
+	f->capture_requested = false;
 	return false;
 }
 
@@ -407,7 +407,7 @@ static void nb_video_render(void *data, gs_effect_t *effect)
 		return;
 	}
 
-	const bool want_input = f->method != NB_METHOD_MANUAL || atomic_load(&f->capture_requested);
+	const bool want_input = f->method != NB_METHOD_MANUAL || f->capture_requested;
 
 	if (!want_input) {
 		/* Zero-copy path (FR-03): no texture analysis or capture pending. */
@@ -439,9 +439,9 @@ static void nb_video_render(void *data, gs_effect_t *effect)
 	if (f->method != NB_METHOD_MANUAL)
 		nb_update_stats(f, input);
 
-	if (atomic_load(&f->capture_requested)) {
+	if (f->capture_requested) {
 		nb_do_capture(f, input, w, h);
-		atomic_store(&f->capture_requested, false);
+		f->capture_requested = false;
 	}
 
 	gs_effect_set_texture(f->param_image, input);
