@@ -623,8 +623,8 @@ static obs_properties_t *nb_properties(void *data)
 	obs_properties_add_float_slider(props, "target_luminance", obs_module_text("TargetLuminance"), 0.0, 100.0,
 					0.5);
 	obs_properties_add_button(props, "reset", obs_module_text("Reset"), reset_clicked);
-	obs_properties_add_bool(props, "show_split", obs_module_text("ShowSplit"), false);
-	obs_properties_add_bool(props, "linear_light", obs_module_text("LinearLight"), true);
+	obs_properties_add_bool(props, "show_split", obs_module_text("ShowSplit"));
+	obs_properties_add_bool(props, "linear_light", obs_module_text("LinearLight"));
 	obs_properties_add_text(props, "sample_status", obs_module_text("Status"), OBS_TEXT_INFO);
 
 	/* Apply visibility for the current settings (data may be NULL in some
