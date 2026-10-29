@@ -17,22 +17,27 @@ jobs:
     name: Build for Windows x64
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download pre-built OBS dependencies
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://github.com/obsproject/obs-deps/releases/download/${{ env.DEPS_VERSION }}/windows-deps-${{ env.DEPS_VERSION }}-x64.zip" -OutFile deps.zip
           Invoke-WebRequest -Uri "https://github.com/obsproject/obs-deps/releases/download/${{ env.DEPS_VERSION }}/windows-deps-qt6-${{ env.DEPS_VERSION }}-x64.zip" -OutFile qt6.zip
-          Expand-Archive deps.zip -DestinationPath ${{ github.workspace }}\deps
-          Expand-Archive qt6.zip -DestinationPath ${{ github.workspace }}\deps
+          # Use tar.exe instead of Expand-Archive: PowerShell's Expand-Archive
+          # chokes on archive entries with backslash-style directory paths.
+          New-Item -ItemType Directory -Force deps | Out-Null
+          tar -xf deps.zip -C deps
+          tar -xf qt6.zip -C deps
 
       - name: Build and install libobs (OBS ${{ env.OBS_TAG }})
         shell: pwsh
         run: |
           git clone --depth 1 --branch ${{ env.OBS_TAG }} https://github.com/obsproject/obs-studio obs-studio
+          # The deps archives may extract flat or under a single top-level
+          # folder; list the common candidates so either layout resolves.
           cmake -S obs-studio -B obs-studio/build -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/deps" `
+            "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/deps;${{ github.workspace }}/deps/win-x64;${{ github.workspace }}/deps/x64;${{ github.workspace }}/deps/windows-x64" `
             -DENABLE_UI=OFF -DENABLE_SCRIPTING=OFF -DBUILD_TESTS=OFF
           cmake --build obs-studio/build --config RelWithDebInfo --target libobs
           cmake --install obs-studio/build --prefix "${{ github.workspace }}/libobs-prefix" `
@@ -42,7 +47,7 @@ jobs:
         shell: pwsh
         run: |
           cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/libobs-prefix;${{ github.workspace }}/deps" `
+            "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/libobs-prefix;${{ github.workspace }}/deps;${{ github.workspace }}/deps/win-x64;${{ github.workspace }}/deps/x64" `
             -DCMAKE_BUILD_TYPE=RelWithDebInfo
           cmake --build build --config RelWithDebInfo
 
@@ -57,7 +62,7 @@ jobs:
           Compress-Archive -Path "${{ github.workspace }}/dist/*" -DestinationPath "${{ github.workspace }}/obs-neutral-balance-windows-x64.zip"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: obs-neutral-balance-windows-x64
           path: ${{ github.workspace }}/obs-neutral-balance-windows-x64.zip
@@ -67,7 +72,7 @@ jobs:
     name: Build for macOS (Apple Silicon)
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Qt6
         run: brew install --quiet qt@6
@@ -81,13 +86,13 @@ jobs:
       - name: Build and install libobs (OBS ${{ env.OBS_TAG }})
         run: |
           git clone --depth 1 --branch ${{ env.OBS_TAG }} https://github.com/obsproject/obs-studio obs-studio
-          cmake -S obs-studio -B obs-studio/build -G "Xcode"             -DCMAKE_PREFIX_PATH="${{ github.workspace }}/deps"             -DENABLE_UI=OFF -DENABLE_SCRIPTING=OFF -DBUILD_TESTS=OFF
+          cmake -S obs-studio -B obs-studio/build -G "Xcode"             "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/deps;${{ github.workspace }}/deps/macos;${{ github.workspace }}/deps/universal;${{ github.workspace }}/deps/macos-arm64"             -DENABLE_UI=OFF -DENABLE_SCRIPTING=OFF -DBUILD_TESTS=OFF
           cmake --build obs-studio/build --config RelWithDebInfo --target libobs
           cmake --install obs-studio/build --prefix "${{ github.workspace }}/libobs-prefix"             --config RelWithDebInfo --component libobs
 
       - name: Build plugin
         run: |
-          cmake -S . -B build -G "Xcode"             -DCMAKE_PREFIX_PATH="${{ github.workspace }}/libobs-prefix;${{ github.workspace }}/deps;$(brew --prefix qt@6)"             -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake -S . -B build -G "Xcode"             "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/libobs-prefix;${{ github.workspace }}/deps;${{ github.workspace }}/deps/macos;${{ github.workspace }}/deps/universal;$(brew --prefix qt@6)"             -DCMAKE_BUILD_TYPE=RelWithDebInfo
           cmake --build build --config RelWithDebInfo
 
       - name: Package
@@ -99,7 +104,7 @@ jobs:
           cd "${{ github.workspace }}/dist" && zip -r ../obs-neutral-balance-macos-arm64.zip obs-neutral-balance
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: obs-neutral-balance-macos-arm64
           path: ${{ github.workspace }}/obs-neutral-balance-macos-arm64.zip
@@ -109,12 +114,13 @@ jobs:
     name: Build for Ubuntu x86_64
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends             build-essential git cmake ninja-build pkg-config             libx11-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev             libxcb-xfixes0-dev libxcb-xinerama0-dev             libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev             qt6-base-dev
+          # extra-cmake-modules is REQUIRED by OBS 31's Linux CMake configure.
+          sudo apt-get install -y --no-install-recommends             build-essential git cmake ninja-build pkg-config             extra-cmake-modules             libx11-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev             libxcb-xfixes0-dev libxcb-xinerama0-dev             libxcomposite-dev libxdamage-dev libxrandr-dev libxfixes-dev             libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev             libwayland-dev wayland-protocols libxkbcommon-dev             libudev-dev             qt6-base-dev
 
       - name: Build and install libobs (OBS ${{ env.OBS_TAG }})
         run: |
@@ -137,7 +143,7 @@ jobs:
           cd "${{ github.workspace }}/dist" && zip -r ../obs-neutral-balance-ubuntu-x86_64.zip obs-neutral-balance
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: obs-neutral-balance-ubuntu-x86_64
           path: ${{ github.workspace }}/obs-neutral-balance-ubuntu-x86_64.zip
