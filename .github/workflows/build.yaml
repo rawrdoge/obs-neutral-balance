@@ -151,7 +151,6 @@ jobs:
             libavfilter-dev libavdevice-dev libpostproc-dev \
             libva-dev libva-drm2 libva-glx2 libva-x11-2 \
             libpci-dev \
-            libffnvcodec-dev \
             libx11-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev \
             libxcb-xfixes0-dev libxcb-xinerama0-dev \
             libxcomposite-dev libxdamage-dev libxrandr-dev libxfixes-dev \
@@ -161,6 +160,13 @@ jobs:
             libudev-dev \
             qt6-base-dev
 
+      - name: Fetch FFmpeg nv-codec headers (not packaged in Ubuntu)
+        run: |
+          curl -fSL -o nvcodec.zip https://codeload.github.com/FFmpeg/nv-codec-headers/zip/refs/heads/master
+          unzip -q nvcodec.zip
+          mkdir -p nvcodec/include
+          cp -r nv-codec-headers-master/include/ffnvcodec nvcodec/include/
+
       - name: Build and install libobs (OBS ${{ env.OBS_TAG }})
         run: |
           git clone --depth 1 --branch ${{ env.OBS_TAG }} https://github.com/obsproject/obs-studio obs-studio
@@ -168,6 +174,7 @@ jobs:
           # for obs-browser/obs-websocket even when they're disabled.
           git -C obs-studio submodule update --init --recursive --depth 1
           cmake -S obs-studio -B obs-studio/build -G Ninja \
+            "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/nvcodec" \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DENABLE_UI=OFF -DENABLE_SCRIPTING=OFF -DBUILD_TESTS=OFF \
             -DENABLE_BROWSER=OFF -DENABLE_WEBSOCKET=OFF -DENABLE_AJA=OFF -DENABLE_NEW_MPEGTS_OUTPUT=OFF
