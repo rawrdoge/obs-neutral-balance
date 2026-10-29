@@ -55,14 +55,26 @@ jobs:
       - name: Ensure libobs CMake package config
         shell: pwsh
         run: |
-          $cfg = Get-ChildItem -Path "${{ github.workspace }}/libobs-prefix" -Recurse -Filter libobsConfig.cmake -ErrorAction SilentlyContinue | Select-Object -First 1
+          $prefix = "${{ github.workspace }}/libobs-prefix"
+          $cfg = Get-ChildItem -Path $prefix -Recurse -Filter libobsConfig.cmake -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($cfg) {
             Write-Host "Using libobs config: $($cfg.FullName)"
           } else {
-            $dir = "${{ github.workspace }}/libobs-prefix/lib/cmake/libobs"
+            $hdr = Get-ChildItem -Path $prefix -Recurse -Filter obs-module.h -ErrorAction SilentlyContinue | Select-Object -First 1
+            $implib = Get-ChildItem -Path $prefix -Recurse -Filter obs.lib -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $hdr -or -not $implib) {
+              Write-Error "libobs component install incomplete: obs-module.h or obs.lib missing under $prefix"
+              exit 1
+            }
+            $incDir = $hdr.DirectoryName.Replace('\', '/')
+            $implibPath = $implib.FullName.Replace('\', '/')
+            $dir = "$prefix/lib/cmake/libobs"
             New-Item -ItemType Directory -Force $dir | Out-Null
-            [IO.File]::WriteAllText((Join-Path $dir 'libobsConfig.cmake'), [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('IyBTeW50aGVzaXplZCBtaW5pbWFsIGxpYm9icyBwYWNrYWdlIGNvbmZpZyAoQ0kgZmFsbGJhY2spCmdldF9maWxlbmFtZV9jb21wb25lbnQoX0lNUE9SVF9QUkVGSVggIiR7Q01BS0VfQ1VSUkVOVF9MSVNUX0ZJTEV9IiBQQVRIKQpnZXRfZmlsZW5hbWVfY29tcG9uZW50KF9JTVBPUlRfUFJFRklYICIke19JTVBPUlRfUFJFRklYfSIgUEFUSCkKZ2V0X2ZpbGVuYW1lX2NvbXBvbmVudChfSU1QT1JUX1BSRUZJWCAiJHtfSU1QT1JUX1BSRUZJWH0iIFBBVEgpCmdldF9maWxlbmFtZV9jb21wb25lbnQoX0lNUE9SVF9QUkVGSVggIiR7X0lNUE9SVF9QUkVGSVh9IiBQQVRIKQppZihOT1QgVEFSR0VUIE9CUzo6bGlib2JzKQogIGFkZF9saWJyYXJ5KE9CUzo6bGlib2JzIFNIQVJFRCBJTVBPUlRFRCkKICBpZihXSU4zMikKICAgIHNldF90YXJnZXRfcHJvcGVydGllcyhPQlM6OmxpYm9icyBQUk9QRVJUSUVTCiAgICAgIElNUE9SVEVEX0lNUExJQiAiJHtfSU1QT1JUX1BSRUZJWH0vbGliL29icy5saWIiCiAgICAgIElNUE9SVEVEX0xPQ0FUSU9OICIke19JTVBPUlRfUFJFRklYfS9iaW4vb2JzLmRsbCIKICAgICAgSU5URVJGQUNFX0lOQ0xVREVfRElSRUNUT1JJRVMgIiR7X0lNUE9SVF9QUkVGSVh9L2luY2x1ZGUvb2JzIikKICBlbHNlaWYoQVBQTEUpCiAgICBmaW5kX2xpYnJhcnkoX0xJQk9CU19GV0sgbGlib2JzIFBBVEhTICIke19JTVBPUlRfUFJFRklYfS9MaWJyYXJ5L0ZyYW1ld29ya3MiICIke19JTVBPUlRfUFJFRklYfS9saWIiKQogICAgaWYoX0xJQk9CU19GV0spCiAgICAgIHNldF90YXJnZXRfcHJvcGVydGllcyhPQlM6OmxpYm9icyBQUk9QRVJUSUVTCiAgICAgICAgSU1QT1JURURfTE9DQVRJT04gIiR7X0xJQk9CU19GV0t9IgogICAgICAgIElOVEVSRkFDRV9JTkNMVURFX0RJUkVDVE9SSUVTICIke19JTVBPUlRfUFJFRklYfS9pbmNsdWRlL29icyIpCiAgICAgIHVuc2V0KF9MSUJPQlNfRldLIENBQ0hFKQogICAgZWxzZSgpCiAgICAgIHNldF90YXJnZXRfcHJvcGVydGllcyhPQlM6OmxpYm9icyBQUk9QRVJUSUVTCiAgICAgICAgSU1QT1JURURfTE9DQVRJT04gIiR7X0lNUE9SVF9QUkVGSVh9L2xpYi9saWJvYnMuZHlsaWIiCiAgICAgICAgSU5URVJGQUNFX0lOQ0xVREVfRElSRUNUT1JJRVMgIiR7X0lNUE9SVF9QUkVGSVh9L2luY2x1ZGUvb2JzIikKICAgIGVuZGlmKCkKICBlbHNlKCkKICAgIHNldF90YXJnZXRfcHJvcGVydGllcyhPQlM6OmxpYm9icyBQUk9QRVJUSUVTCiAgICAgIElNUE9SVEVEX0xPQ0FUSU9OICIke19JTVBPUlRfUFJFRklYfS9saWIvbGlib2JzLnNvIgogICAgICBJTlRFUkZBQ0VfSU5DTFVERV9ESVJFQ1RPUklFUyAiJHtfSU1QT1JUX1BSRUZJWH0vaW5jbHVkZS9vYnMiKQogIGVuZGlmKCkKZW5kaWYoKQpzZXQobGlib2JzX0ZPVU5EIFRSVUUp')))
-            Write-Host "Synthesized libobs config at $dir"
+            $cfgPath = Join-Path $dir 'libobsConfig.cmake'
+            $c = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('IyBTeW50aGVzaXplZCBtaW5pbWFsIGxpYm9icyBwYWNrYWdlIGNvbmZpZyAocGF0aHMgZGlzY292ZXJlZCBieSBDSSkKaWYoTk9UIFRBUkdFVCBPQlM6OmxpYm9icykKICBhZGRfbGlicmFyeShPQlM6OmxpYm9icyBTSEFSRUQgSU1QT1JURUQpCiAgaWYoV0lOMzIpCiAgICBzZXRfdGFyZ2V0X3Byb3BlcnRpZXMoT0JTOjpsaWJvYnMgUFJPUEVSVElFUwogICAgICBJTVBPUlRFRF9JTVBMSUIgIl9fTkJfSU1QTElCX18iCiAgICAgIElOVEVSRkFDRV9JTkNMVURFX0RJUkVDVE9SSUVTICJfX05CX0lOQ0xVREVfRElSX18iKQogIGVsc2UoKQogICAgc2V0X3RhcmdldF9wcm9wZXJ0aWVzKE9CUzo6bGlib2JzIFBST1BFUlRJRVMKICAgICAgSU1QT1JURURfTE9DQVRJT04gIl9fTkJfTElCUEFUSF9fIgogICAgICBJTlRFUkZBQ0VfSU5DTFVERV9ESVJFQ1RPUklFUyAiX19OQl9JTkNMVURFX0RJUl9fIikKICBlbmRpZigpCmVuZGlmKCkKc2V0KGxpYm9ic19GT1VORCBUUlVFKQ=='))
+            $c = $c.Replace('__NB_INCLUDE_DIR__', $incDir).Replace('__NB_IMPLIB__', $implibPath).Replace('__NB_LIBPATH__', $implibPath)
+            [IO.File]::WriteAllText($cfgPath, $c)
+            Write-Host "Synthesized libobs config at $cfgPath (include: $incDir, implib: $implibPath)"
           }
 
 
@@ -124,11 +136,21 @@ jobs:
         run: |
           if find libobs-prefix -name libobsConfig.cmake | grep -q .; then
             echo "libobs config present"
-          else
-            mkdir -p libobs-prefix/lib/cmake/libobs
-            echo 'IyBTeW50aGVzaXplZCBtaW5pbWFsIGxpYm9icyBwYWNrYWdlIGNvbmZpZyAoQ0kgZmFsbGJhY2spCmdldF9maWxlbmFtZV9jb21wb25lbnQoX0lNUE9SVF9QUkVGSVggIiR7Q01BS0VfQ1VSUkVOVF9MSVNUX0ZJTEV9IiBQQVRIKQpnZXRfZmlsZW5hbWVfY29tcG9uZW50KF9JTVBPUlRfUFJFRklYICIke19JTVBPUlRfUFJFRklYfSIgUEFUSCkKZ2V0X2ZpbGVuYW1lX2NvbXBvbmVudChfSU1QT1JUX1BSRUZJWCAiJHtfSU1QT1JUX1BSRUZJWH0iIFBBVEgpCmdldF9maWxlbmFtZV9jb21wb25lbnQoX0lNUE9SVF9QUkVGSVggIiR7X0lNUE9SVF9QUkVGSVh9IiBQQVRIKQppZihOT1QgVEFSR0VUIE9CUzo6bGlib2JzKQogIGFkZF9saWJyYXJ5KE9CUzo6bGlib2JzIFNIQVJFRCBJTVBPUlRFRCkKICBpZihXSU4zMikKICAgIHNldF90YXJnZXRfcHJvcGVydGllcyhPQlM6OmxpYm9icyBQUk9QRVJUSUVTCiAgICAgIElNUE9SVEVEX0lNUExJQiAiJHtfSU1QT1JUX1BSRUZJWH0vbGliL29icy5saWIiCiAgICAgIElNUE9SVEVEX0xPQ0FUSU9OICIke19JTVBPUlRfUFJFRklYfS9iaW4vb2JzLmRsbCIKICAgICAgSU5URVJGQUNFX0lOQ0xVREVfRElSRUNUT1JJRVMgIiR7X0lNUE9SVF9QUkVGSVh9L2luY2x1ZGUvb2JzIikKICBlbHNlaWYoQVBQTEUpCiAgICBmaW5kX2xpYnJhcnkoX0xJQk9CU19GV0sgbGlib2JzIFBBVEhTICIke19JTVBPUlRfUFJFRklYfS9MaWJyYXJ5L0ZyYW1ld29ya3MiICIke19JTVBPUlRfUFJFRklYfS9saWIiKQogICAgaWYoX0xJQk9CU19GV0spCiAgICAgIHNldF90YXJnZXRfcHJvcGVydGllcyhPQlM6OmxpYm9icyBQUk9QRVJUSUVTCiAgICAgICAgSU1QT1JURURfTE9DQVRJT04gIiR7X0xJQk9CU19GV0t9IgogICAgICAgIElOVEVSRkFDRV9JTkNMVURFX0RJUkVDVE9SSUVTICIke19JTVBPUlRfUFJFRklYfS9pbmNsdWRlL29icyIpCiAgICAgIHVuc2V0KF9MSUJPQlNfRldLIENBQ0hFKQogICAgZWxzZSgpCiAgICAgIHNldF90YXJnZXRfcHJvcGVydGllcyhPQlM6OmxpYm9icyBQUk9QRVJUSUVTCiAgICAgICAgSU1QT1JURURfTE9DQVRJT04gIiR7X0lNUE9SVF9QUkVGSVh9L2xpYi9saWJvYnMuZHlsaWIiCiAgICAgICAgSU5URVJGQUNFX0lOQ0xVREVfRElSRUNUT1JJRVMgIiR7X0lNUE9SVF9QUkVGSVh9L2luY2x1ZGUvb2JzIikKICAgIGVuZGlmKCkKICBlbHNlKCkKICAgIHNldF90YXJnZXRfcHJvcGVydGllcyhPQlM6OmxpYm9icyBQUk9QRVJUSUVTCiAgICAgIElNUE9SVEVEX0xPQ0FUSU9OICIke19JTVBPUlRfUFJFRklYfS9saWIvbGlib2JzLnNvIgogICAgICBJTlRFUkZBQ0VfSU5DTFVERV9ESVJFQ1RPUklFUyAiJHtfSU1QT1JUX1BSRUZJWH0vaW5jbHVkZS9vYnMiKQogIGVuZGlmKCkKZW5kaWYoKQpzZXQobGlib2JzX0ZPVU5EIFRSVUUp' | base64 -d > libobs-prefix/lib/cmake/libobs/libobsConfig.cmake
-            echo "synthesized libobs config"
+            exit 0
           fi
+          hdr=$(find libobs-prefix -name obs-module.h | head -1)
+          lib=$(find libobs-prefix -name 'libobs.so' -o -name 'libobs.dylib' | head -1)
+          [ -z "$lib" ] && lib=$(find libobs-prefix -path '*.framework/libobs' | head -1)
+          if [ -z "$hdr" ] || [ -z "$lib" ]; then
+            echo "libobs component install incomplete: obs-module.h or libobs binary missing"
+            exit 1
+          fi
+          inc_dir=$(dirname "$hdr")
+          mkdir -p libobs-prefix/lib/cmake/libobs
+          cfg=libobs-prefix/lib/cmake/libobs/libobsConfig.cmake
+          echo 'IyBTeW50aGVzaXplZCBtaW5pbWFsIGxpYm9icyBwYWNrYWdlIGNvbmZpZyAocGF0aHMgZGlzY292ZXJlZCBieSBDSSkKaWYoTk9UIFRBUkdFVCBPQlM6OmxpYm9icykKICBhZGRfbGlicmFyeShPQlM6OmxpYm9icyBTSEFSRUQgSU1QT1JURUQpCiAgaWYoV0lOMzIpCiAgICBzZXRfdGFyZ2V0X3Byb3BlcnRpZXMoT0JTOjpsaWJvYnMgUFJPUEVSVElFUwogICAgICBJTVBPUlRFRF9JTVBMSUIgIl9fTkJfSU1QTElCX18iCiAgICAgIElOVEVSRkFDRV9JTkNMVURFX0RJUkVDVE9SSUVTICJfX05CX0lOQ0xVREVfRElSX18iKQogIGVsc2UoKQogICAgc2V0X3RhcmdldF9wcm9wZXJ0aWVzKE9CUzo6bGlib2JzIFBST1BFUlRJRVMKICAgICAgSU1QT1JURURfTE9DQVRJT04gIl9fTkJfTElCUEFUSF9fIgogICAgICBJTlRFUkZBQ0VfSU5DTFVERV9ESVJFQ1RPUklFUyAiX19OQl9JTkNMVURFX0RJUl9fIikKICBlbmRpZigpCmVuZGlmKCkKc2V0KGxpYm9ic19GT1VORCBUUlVFKQ==' | base64 -d > "$cfg"
+          sed -i "s|__NB_INCLUDE_DIR__|$inc_dir|g; s|__NB_IMPLIB__|$lib|g; s|__NB_LIBPATH__|$lib|g" "$cfg"
+          echo "synthesized libobs config (include: $inc_dir, lib: $lib)"
 
 
       - name: Build plugin
@@ -194,11 +216,21 @@ jobs:
         run: |
           if find libobs-prefix -name libobsConfig.cmake | grep -q .; then
             echo "libobs config present"
-          else
-            mkdir -p libobs-prefix/lib/cmake/libobs
-            echo 'IyBTeW50aGVzaXplZCBtaW5pbWFsIGxpYm9icyBwYWNrYWdlIGNvbmZpZyAoQ0kgZmFsbGJhY2spCmdldF9maWxlbmFtZV9jb21wb25lbnQoX0lNUE9SVF9QUkVGSVggIiR7Q01BS0VfQ1VSUkVOVF9MSVNUX0ZJTEV9IiBQQVRIKQpnZXRfZmlsZW5hbWVfY29tcG9uZW50KF9JTVBPUlRfUFJFRklYICIke19JTVBPUlRfUFJFRklYfSIgUEFUSCkKZ2V0X2ZpbGVuYW1lX2NvbXBvbmVudChfSU1QT1JUX1BSRUZJWCAiJHtfSU1QT1JUX1BSRUZJWH0iIFBBVEgpCmdldF9maWxlbmFtZV9jb21wb25lbnQoX0lNUE9SVF9QUkVGSVggIiR7X0lNUE9SVF9QUkVGSVh9IiBQQVRIKQppZihOT1QgVEFSR0VUIE9CUzo6bGlib2JzKQogIGFkZF9saWJyYXJ5KE9CUzo6bGlib2JzIFNIQVJFRCBJTVBPUlRFRCkKICBpZihXSU4zMikKICAgIHNldF90YXJnZXRfcHJvcGVydGllcyhPQlM6OmxpYm9icyBQUk9QRVJUSUVTCiAgICAgIElNUE9SVEVEX0lNUExJQiAiJHtfSU1QT1JUX1BSRUZJWH0vbGliL29icy5saWIiCiAgICAgIElNUE9SVEVEX0xPQ0FUSU9OICIke19JTVBPUlRfUFJFRklYfS9iaW4vb2JzLmRsbCIKICAgICAgSU5URVJGQUNFX0lOQ0xVREVfRElSRUNUT1JJRVMgIiR7X0lNUE9SVF9QUkVGSVh9L2luY2x1ZGUvb2JzIikKICBlbHNlaWYoQVBQTEUpCiAgICBmaW5kX2xpYnJhcnkoX0xJQk9CU19GV0sgbGlib2JzIFBBVEhTICIke19JTVBPUlRfUFJFRklYfS9MaWJyYXJ5L0ZyYW1ld29ya3MiICIke19JTVBPUlRfUFJFRklYfS9saWIiKQogICAgaWYoX0xJQk9CU19GV0spCiAgICAgIHNldF90YXJnZXRfcHJvcGVydGllcyhPQlM6OmxpYm9icyBQUk9QRVJUSUVTCiAgICAgICAgSU1QT1JURURfTE9DQVRJT04gIiR7X0xJQk9CU19GV0t9IgogICAgICAgIElOVEVSRkFDRV9JTkNMVURFX0RJUkVDVE9SSUVTICIke19JTVBPUlRfUFJFRklYfS9pbmNsdWRlL29icyIpCiAgICAgIHVuc2V0KF9MSUJPQlNfRldLIENBQ0hFKQogICAgZWxzZSgpCiAgICAgIHNldF90YXJnZXRfcHJvcGVydGllcyhPQlM6OmxpYm9icyBQUk9QRVJUSUVTCiAgICAgICAgSU1QT1JURURfTE9DQVRJT04gIiR7X0lNUE9SVF9QUkVGSVh9L2xpYi9saWJvYnMuZHlsaWIiCiAgICAgICAgSU5URVJGQUNFX0lOQ0xVREVfRElSRUNUT1JJRVMgIiR7X0lNUE9SVF9QUkVGSVh9L2luY2x1ZGUvb2JzIikKICAgIGVuZGlmKCkKICBlbHNlKCkKICAgIHNldF90YXJnZXRfcHJvcGVydGllcyhPQlM6OmxpYm9icyBQUk9QRVJUSUVTCiAgICAgIElNUE9SVEVEX0xPQ0FUSU9OICIke19JTVBPUlRfUFJFRklYfS9saWIvbGlib2JzLnNvIgogICAgICBJTlRFUkZBQ0VfSU5DTFVERV9ESVJFQ1RPUklFUyAiJHtfSU1QT1JUX1BSRUZJWH0vaW5jbHVkZS9vYnMiKQogIGVuZGlmKCkKZW5kaWYoKQpzZXQobGlib2JzX0ZPVU5EIFRSVUUp' | base64 -d > libobs-prefix/lib/cmake/libobs/libobsConfig.cmake
-            echo "synthesized libobs config"
+            exit 0
           fi
+          hdr=$(find libobs-prefix -name obs-module.h | head -1)
+          lib=$(find libobs-prefix -name 'libobs.so' -o -name 'libobs.dylib' | head -1)
+          [ -z "$lib" ] && lib=$(find libobs-prefix -path '*.framework/libobs' | head -1)
+          if [ -z "$hdr" ] || [ -z "$lib" ]; then
+            echo "libobs component install incomplete: obs-module.h or libobs binary missing"
+            exit 1
+          fi
+          inc_dir=$(dirname "$hdr")
+          mkdir -p libobs-prefix/lib/cmake/libobs
+          cfg=libobs-prefix/lib/cmake/libobs/libobsConfig.cmake
+          echo 'IyBTeW50aGVzaXplZCBtaW5pbWFsIGxpYm9icyBwYWNrYWdlIGNvbmZpZyAocGF0aHMgZGlzY292ZXJlZCBieSBDSSkKaWYoTk9UIFRBUkdFVCBPQlM6OmxpYm9icykKICBhZGRfbGlicmFyeShPQlM6OmxpYm9icyBTSEFSRUQgSU1QT1JURUQpCiAgaWYoV0lOMzIpCiAgICBzZXRfdGFyZ2V0X3Byb3BlcnRpZXMoT0JTOjpsaWJvYnMgUFJPUEVSVElFUwogICAgICBJTVBPUlRFRF9JTVBMSUIgIl9fTkJfSU1QTElCX18iCiAgICAgIElOVEVSRkFDRV9JTkNMVURFX0RJUkVDVE9SSUVTICJfX05CX0lOQ0xVREVfRElSX18iKQogIGVsc2UoKQogICAgc2V0X3RhcmdldF9wcm9wZXJ0aWVzKE9CUzo6bGlib2JzIFBST1BFUlRJRVMKICAgICAgSU1QT1JURURfTE9DQVRJT04gIl9fTkJfTElCUEFUSF9fIgogICAgICBJTlRFUkZBQ0VfSU5DTFVERV9ESVJFQ1RPUklFUyAiX19OQl9JTkNMVURFX0RJUl9fIikKICBlbmRpZigpCmVuZGlmKCkKc2V0KGxpYm9ic19GT1VORCBUUlVFKQ==' | base64 -d > "$cfg"
+          sed -i "s|__NB_INCLUDE_DIR__|$inc_dir|g; s|__NB_IMPLIB__|$lib|g; s|__NB_LIBPATH__|$lib|g" "$cfg"
+          echo "synthesized libobs config (include: $inc_dir, lib: $lib)"
 
 
       - name: Build plugin
