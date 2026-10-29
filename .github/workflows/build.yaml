@@ -44,7 +44,7 @@ jobs:
           cmake -S obs-studio -B obs-studio/build -G "Visual Studio 17 2022" -A x64 `
             "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/deps;${{ github.workspace }}/deps/win-x64;${{ github.workspace }}/deps/x64;${{ github.workspace }}/deps/windows-x64" `
             -DENABLE_UI=OFF -DENABLE_SCRIPTING=OFF -DBUILD_TESTS=OFF `
-            -DENABLE_BROWSER=OFF -DENABLE_WEBSOCKET=OFF -DENABLE_AJA=OFF -DENABLE_WEBRTC=OFF -DENABLE_NEW_MPEGTS_OUTPUT=OFF
+            -DENABLE_BROWSER=OFF -DENABLE_WEBSOCKET=OFF -DENABLE_AJA=OFF -DENABLE_WEBRTC=OFF -DENABLE_VLC=OFF -DENABLE_NEW_MPEGTS_OUTPUT=OFF
           # OBS's multi-arch layout puts the companion x86 pass in build_x86
           # and the native x64 libobs in build (obs-studio/build_x64 in some
           # configs) - pick whichever actually contains the project.
@@ -181,7 +181,7 @@ jobs:
             "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/nvcodec" \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DENABLE_UI=OFF -DENABLE_SCRIPTING=OFF -DBUILD_TESTS=OFF \
-            -DENABLE_BROWSER=OFF -DENABLE_WEBSOCKET=OFF -DENABLE_AJA=OFF -DENABLE_WEBRTC=OFF -DENABLE_NEW_MPEGTS_OUTPUT=OFF
+            -DENABLE_BROWSER=OFF -DENABLE_WEBSOCKET=OFF -DENABLE_AJA=OFF -DENABLE_WEBRTC=OFF -DENABLE_VLC=OFF -DENABLE_NEW_MPEGTS_OUTPUT=OFF
           cmake --build obs-studio/build --target libobs
           cmake --install obs-studio/build --prefix "${{ github.workspace }}/libobs-prefix" --component libobs
 
