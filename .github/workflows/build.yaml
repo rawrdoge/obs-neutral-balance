@@ -69,6 +69,9 @@ jobs:
             if (Test-Path $buildInc) { $incList = "$incList;$($buildInc.Replace('\', '/'))" }
             $genHdr = Get-ChildItem -Path "$srcRoot/build", "$srcRoot/build_x64" -Recurse -Filter obsconfig.h -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch 'x86' } | Select-Object -First 1
             if ($genHdr) { $incList = "$incList;$($genHdr.DirectoryName.Replace('\', '/'))" }
+            # util/threading.h includes <pthread.h> on Windows (w32-pthreads from obs-deps)
+            $ptHdr = Get-ChildItem -Path "${{ github.workspace }}/deps", "$srcRoot/.deps" -Recurse -Filter pthread.h -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($ptHdr) { $incList = "$incList;$($ptHdr.DirectoryName.Replace('\', '/'))" }
             # Import library: prefer the install prefix, fall back to the build tree
             $implibPath = $null
             $implib = Get-ChildItem -Path $prefix -Recurse -Filter obs.lib -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -217,6 +220,7 @@ jobs:
             extra-cmake-modules \
             uthash-dev libjansson-dev \
             uuid-dev libglvnd-dev libxcb-dri3-dev libxcb-present-dev libxcb-sync-dev libxshmfence-dev \
+            libx11-xcb-dev libgbm-dev libdrm-dev \
             libx11-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev \
             libxcb-xfixes0-dev libxcb-xinerama0-dev \
             libxcomposite-dev libxdamage-dev libxrandr-dev libxfixes-dev \
