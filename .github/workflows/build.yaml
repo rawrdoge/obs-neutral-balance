@@ -104,8 +104,7 @@ jobs:
         shell: pwsh
         run: |
           cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
-            "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/libobs-prefix;${{ github.workspace }}/deps;${{ github.workspace }}/deps/win-x64;${{ github.workspace }}/deps/x64" `
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo
+            "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/libobs-prefix;${{ github.workspace }}/deps;${{ github.workspace }}/deps/win-x64;${{ github.workspace }}/deps/x64"
           cmake --build build --config RelWithDebInfo
 
       - name: Package
@@ -119,7 +118,7 @@ jobs:
           Compress-Archive -Path "${{ github.workspace }}/dist/*" -DestinationPath "${{ github.workspace }}/obs-neutral-balance-windows-x64.zip"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: obs-neutral-balance-windows-x64
           path: ${{ github.workspace }}/obs-neutral-balance-windows-x64.zip
@@ -185,8 +184,7 @@ jobs:
       - name: Build plugin
         run: |
           cmake -S . -B build -G "Xcode" \
-            "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/libobs-prefix;${{ github.workspace }}/deps;${{ github.workspace }}/deps/macos;${{ github.workspace }}/deps/universal;$(brew --prefix qt@6)" \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo
+            "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/libobs-prefix;${{ github.workspace }}/deps;${{ github.workspace }}/deps/macos;${{ github.workspace }}/deps/universal;$(brew --prefix qt@6)"
           cmake --build build --config RelWithDebInfo
 
       - name: Package
@@ -198,7 +196,7 @@ jobs:
           cd "${{ github.workspace }}/dist" && zip -r ../obs-neutral-balance-macos-arm64.zip obs-neutral-balance
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: obs-neutral-balance-macos-arm64
           path: ${{ github.workspace }}/obs-neutral-balance-macos-arm64.zip
@@ -223,6 +221,7 @@ jobs:
             libx11-xcb-dev libgbm-dev libdrm-dev \
             libpulse-dev libxcb-xinput-dev \
             libfreetype6-dev libx264-dev \
+            libasound2-dev libpipewire-0.3-dev \
             libx11-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev \
             libxcb-xfixes0-dev libxcb-xinerama0-dev \
             libxcomposite-dev libxdamage-dev libxrandr-dev libxfixes-dev \
@@ -289,7 +288,7 @@ jobs:
           cd "${{ github.workspace }}/dist" && zip -r ../obs-neutral-balance-ubuntu-x86_64.zip obs-neutral-balance
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: obs-neutral-balance-ubuntu-x86_64
           path: ${{ github.workspace }}/obs-neutral-balance-ubuntu-x86_64.zip
