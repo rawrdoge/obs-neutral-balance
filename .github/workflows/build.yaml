@@ -117,13 +117,12 @@ jobs:
           New-Item -ItemType Directory -Force "$dist/data/obs-plugins/obs-neutral-balance" | Out-Null
           Copy-Item "build/RelWithDebInfo/obs-neutral-balance.dll" "$dist/obs-plugins/64bit/"
           Copy-Item -Recurse "data/*" "$dist/data/obs-plugins/obs-neutral-balance/"
-          Compress-Archive -Path "${{ github.workspace }}/dist/*" -DestinationPath "${{ github.workspace }}/obs-neutral-balance-windows-x64.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
           name: obs-neutral-balance-windows-x64
-          path: ${{ github.workspace }}/obs-neutral-balance-windows-x64.zip
+          path: ${{ github.workspace }}/dist
 
   # -------------------------------------------------------------------------
   linux:
@@ -227,13 +226,12 @@ jobs:
           mkdir -p "$dist/obs-plugins" "$dist/data/obs-plugins/obs-neutral-balance"
           cp "build/obs-neutral-balance.so" "$dist/obs-plugins/"
           cp -R data/* "$dist/data/obs-plugins/obs-neutral-balance/"
-          cd "${{ github.workspace }}/dist" && zip -r ../obs-neutral-balance-ubuntu-x86_64.zip obs-neutral-balance
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
           name: obs-neutral-balance-ubuntu-x86_64
-          path: ${{ github.workspace }}/obs-neutral-balance-ubuntu-x86_64.zip
+          path: ${{ github.workspace }}/dist
 
   # -------------------------------------------------------------------------
   release:
@@ -248,7 +246,15 @@ jobs:
         uses: actions/download-artifact@v6
         with:
           path: artifacts
-          merge-multiple: true
+
+      - name: Repackage each platform artifact
+        run: |
+          cd artifacts
+          for d in obs-neutral-balance-*; do
+            [ -d "$d" ] || continue
+            zip -r "$d.zip" "$d"
+          done
+          ls -la *.zip
 
       - name: Create release
         uses: softprops/action-gh-release@v2
