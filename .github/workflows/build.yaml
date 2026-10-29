@@ -126,84 +126,6 @@ jobs:
           path: ${{ github.workspace }}/obs-neutral-balance-windows-x64.zip
 
   # -------------------------------------------------------------------------
-  macos:
-    name: Build for macOS (Apple Silicon)
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Qt6
-        run: brew install --quiet qt@6
-
-      - name: Download pre-built OBS dependencies
-        run: |
-          curl -fSL -o deps.tar.gz "https://github.com/obsproject/obs-deps/releases/download/${{ env.DEPS_VERSION }}/macos-deps-${{ env.DEPS_VERSION }}-universal.tar.gz"
-          curl -fSL -o qt6.tar.gz "https://github.com/obsproject/obs-deps/releases/download/${{ env.DEPS_VERSION }}/macos-deps-qt6-${{ env.DEPS_VERSION }}-universal.tar.gz"
-          mkdir -p deps && tar -xzf deps.tar.gz -C deps && tar -xzf qt6.tar.gz -C deps
-
-      - name: Build and install libobs (OBS ${{ env.OBS_TAG }})
-        run: |
-          git clone --depth 1 --branch ${{ env.OBS_TAG }} https://github.com/obsproject/obs-studio obs-studio
-          # Shallow clones don't include submodules; obs-studio's configure checks
-          # for obs-browser/obs-websocket even when they're disabled.
-          git -C obs-studio submodule update --init --recursive --depth 1
-          cmake -S obs-studio -B obs-studio/build -G "Xcode" \
-            "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/deps;${{ github.workspace }}/deps/macos;${{ github.workspace }}/deps/universal;${{ github.workspace }}/deps/macos-arm64" \
-            -DENABLE_UI=OFF -DENABLE_SCRIPTING=OFF -DBUILD_TESTS=OFF \
-            -DENABLE_BROWSER=OFF -DENABLE_WEBSOCKET=OFF -DENABLE_AJA=OFF
-          cmake --build obs-studio/build --config RelWithDebInfo --target libobs
-          cmake --install obs-studio/build --prefix "${{ github.workspace }}/libobs-prefix" \
-            --config RelWithDebInfo --component libobs
-
-      - name: Ensure libobs CMake package config
-        run: |
-          if find libobs-prefix -name libobsConfig.cmake | grep -q .; then
-            echo "libobs config present"
-            exit 0
-          fi
-          hdr=$(find libobs-prefix -name obs-module.h | head -1)
-          if [ -n "$hdr" ]; then inc_dir=$(dirname "$hdr"); else inc_dir="obs-studio/libobs"; fi
-          inc_list="$inc_dir"
-          [ -d obs-studio/build/libobs ] && inc_list="$inc_list;obs-studio/build/libobs"
-          gen=$(find obs-studio/build obs-studio/build_x64 -name obsconfig.h 2>/dev/null | grep -v x86 | head -1)
-          [ -n "$gen" ] && inc_list="$inc_list;$(dirname "$gen")"
-          lib=$(find libobs-prefix \( -name 'libobs.so' -o -name 'libobs.dylib' \) | head -1)
-          [ -z "$lib" ] && lib=$(find libobs-prefix -path '*.framework/libobs' | head -1)
-          if [ -z "$lib" ]; then
-            lib=$(find obs-studio/build obs-studio/build_x64 \( -name 'libobs.so' -o -name 'libobs.dylib' -o -name 'obs.lib' \) 2>/dev/null | grep -v x86 | head -1)
-          fi
-          if [ ! -d "$inc_dir" ] || [ -z "$lib" ]; then
-            echo "Could not locate libobs headers or library under libobs-prefix or obs-studio"
-            exit 1
-          fi
-          mkdir -p libobs-prefix/lib/cmake/libobs
-          cfg=libobs-prefix/lib/cmake/libobs/libobsConfig.cmake
-          echo 'IyBTeW50aGVzaXplZCBtaW5pbWFsIGxpYm9icyBwYWNrYWdlIGNvbmZpZyAocGF0aHMgZGlzY292ZXJlZCBieSBDSSkKaWYoTk9UIFRBUkdFVCBPQlM6OmxpYm9icykKICBhZGRfbGlicmFyeShPQlM6OmxpYm9icyBTSEFSRUQgSU1QT1JURUQpCiAgaWYoV0lOMzIpCiAgICBzZXRfdGFyZ2V0X3Byb3BlcnRpZXMoT0JTOjpsaWJvYnMgUFJPUEVSVElFUwogICAgICBJTVBPUlRFRF9JTVBMSUIgIl9fTkJfSU1QTElCX18iCiAgICAgIElOVEVSRkFDRV9JTkNMVURFX0RJUkVDVE9SSUVTICJfX05CX0lOQ0xVREVfRElSX18iKQogIGVsc2UoKQogICAgc2V0X3RhcmdldF9wcm9wZXJ0aWVzKE9CUzo6bGlib2JzIFBST1BFUlRJRVMKICAgICAgSU1QT1JURURfTE9DQVRJT04gIl9fTkJfTElCUEFUSF9fIgogICAgICBJTlRFUkZBQ0VfSU5DTFVERV9ESVJFQ1RPUklFUyAiX19OQl9JTkNMVURFX0RJUl9fIikKICBlbmRpZigpCmVuZGlmKCkKc2V0KGxpYm9ic19GT1VORCBUUlVFKQ==' | base64 -d > "$cfg"
-          sed -i "s|__NB_INCLUDE_DIR__|$inc_list|g; s|__NB_IMPLIB__|$lib|g; s|__NB_LIBPATH__|$lib|g" "$cfg"
-          echo "synthesized libobs config (includes: $inc_list, lib: $lib)"
-
-
-      - name: Build plugin
-        run: |
-          cmake -S . -B build -G "Xcode" \
-            "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/libobs-prefix;${{ github.workspace }}/deps;${{ github.workspace }}/deps/macos;${{ github.workspace }}/deps/universal;$(brew --prefix qt@6)"
-          cmake --build build --config RelWithDebInfo
-
-      - name: Package
-        run: |
-          dist="${{ github.workspace }}/dist/obs-neutral-balance"
-          mkdir -p "$dist/obs-plugins" "$dist/data/obs-plugins/obs-neutral-balance"
-          cp "build/RelWithDebInfo/obs-neutral-balance.dylib" "$dist/obs-plugins/"
-          cp -R data/* "$dist/data/obs-plugins/obs-neutral-balance/"
-          cd "${{ github.workspace }}/dist" && zip -r ../obs-neutral-balance-macos-arm64.zip obs-neutral-balance
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: obs-neutral-balance-macos-arm64
-          path: ${{ github.workspace }}/obs-neutral-balance-macos-arm64.zip
-
-  # -------------------------------------------------------------------------
   linux:
     name: Build for Ubuntu x86_64
     runs-on: ubuntu-24.04
@@ -227,6 +149,7 @@ jobs:
             libxcb-composite0-dev libxcb-xtest0-dev \
             libv4l-dev libspeexdsp-dev \
             libavfilter-dev libavdevice-dev libpostproc-dev \
+            libva-dev libva-drm2 libva-glx2 libva-x11-2 \
             libx11-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev \
             libxcb-xfixes0-dev libxcb-xinerama0-dev \
             libxcomposite-dev libxdamage-dev libxrandr-dev libxfixes-dev \
@@ -302,7 +225,7 @@ jobs:
   release:
     name: Publish GitHub release
     runs-on: ubuntu-latest
-    needs: [windows, macos, linux]
+    needs: [windows, linux]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
