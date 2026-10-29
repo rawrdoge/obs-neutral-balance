@@ -67,17 +67,16 @@ static void nb_normalize_gains(float gains[3])
 
 void nb_compute_manual_gains(struct neutral_balance *f, float r, float g, float b)
 {
-	float gains[3];
-
-	/* Map the sampled color onto the target neutral lightness (PRD FR-12).
-	 * v1 uses the lightness of the requested target directly; the hue of
-	 * the target is applied as a YIQ hue rotation in the shader. */
-	gains[0] = f->target_luminance / fmaxf(r, EPS);
-	gains[1] = f->target_luminance / fmaxf(g, EPS);
-	gains[2] = f->target_luminance / fmaxf(b, EPS);
-
-	nb_normalize_gains(gains);
-	memcpy(f->gains, gains, sizeof(gains));
+	/* Direct von Kries diagonal correction: the sampled color maps exactly
+	 * onto the target neutral. Channel ratios carry the white balance; the
+	 * common scale (target_luminance / sample brightness) is a true
+	 * multiplicative exposure/gain axis. Gains are intentionally NOT
+	 * normalized - normalization would cancel the target lightness
+	 * algebraically, which is what made the old luminance slider behave as
+	 * a post-hoc brightness offset instead of a gain. */
+	f->gains[0] = f->target_luminance / fmaxf(r, EPS);
+	f->gains[1] = f->target_luminance / fmaxf(g, EPS);
+	f->gains[2] = f->target_luminance / fmaxf(b, EPS);
 }
 
 static void nb_update(void *data, obs_data_t *settings);
@@ -110,6 +109,7 @@ static void nb_load_effect(struct neutral_balance *f)
 	f->param_hue_bias = gs_effect_get_param_by_name(f->effect, "hue_bias");
 	f->param_lum_bias = gs_effect_get_param_by_name(f->effect, "lum_bias");
 	f->param_split = gs_effect_get_param_by_name(f->effect, "split_pos");
+	f->param_linear = gs_effect_get_param_by_name(f->effect, "linear_mode");
 }
 
 static void nb_set_effect_params(struct neutral_balance *f)
@@ -118,15 +118,13 @@ static void nb_set_effect_params(struct neutral_balance *f)
 	vec3_set(&gains, f->gains[0], f->gains[1], f->gains[2]);
 	gs_effect_set_vec3(f->param_gains, &gains);
 
-	/* Hue/luminance are creative biases of the manual correction only. */
-	if (f->method == NB_METHOD_MANUAL) {
-		gs_effect_set_float(f->param_hue_bias, f->target_hue);
-		gs_effect_set_float(f->param_lum_bias, (f->target_luminance - 0.5f) * 0.5f);
-	} else {
-		gs_effect_set_float(f->param_hue_bias, 0.0f);
-		gs_effect_set_float(f->param_lum_bias, 0.0f);
-	}
+	/* Target hue is a creative bias of the manual correction; target
+	 * luminance is a gain axis (see nb_compute_manual_gains), NOT an
+	 * additive brightness offset - so lum_bias is always zero. */
+	gs_effect_set_float(f->param_hue_bias, f->method == NB_METHOD_MANUAL ? f->target_hue : 0.0f);
+	gs_effect_set_float(f->param_lum_bias, 0.0f);
 	gs_effect_set_float(f->param_split, f->show_split ? 0.5f : 0.0f);
+	gs_effect_set_float(f->param_linear, f->linear_light ? 1.0f : 0.0f);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -360,6 +358,7 @@ static void nb_update(void *data, obs_data_t *settings)
 	f->target_luminance = (float)obs_data_get_double(settings, "target_luminance") / 100.0f;
 	f->sample_radius = (long)obs_data_get_int(settings, "sample_radius");
 	f->show_split = obs_data_get_bool(settings, "show_split");
+	f->linear_light = obs_data_get_bool(settings, "linear_light");
 	f->has_sample = obs_data_get_bool(settings, "has_sample");
 	f->last_sample[0] = (float)obs_data_get_double(settings, "last_sample_r");
 	f->last_sample[1] = (float)obs_data_get_double(settings, "last_sample_g");
@@ -373,8 +372,12 @@ static void nb_update(void *data, obs_data_t *settings)
 		else
 			f->gains[0] = f->gains[1] = f->gains[2] = 1.0f;
 	} else {
-		/* Start from identity for the temporal smoother. */
-		f->gains[0] = f->gains[1] = f->gains[2] = 1.0f;
+		/* Keep the current gains: resetting to identity on every settings
+		 * tick (e.g. shades_p slider drags) flashes the uncorrected image.
+		 * Force stats to recompute on the next frame instead of waiting
+		 * out the 10 Hz throttle; the temporal smoother adapts from the
+		 * existing gains within a few frames. */
+		f->last_stats_ts = 0;
 	}
 }
 
@@ -386,6 +389,7 @@ static void nb_get_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "target_luminance", 50.0);
 	obs_data_set_default_int(settings, "sample_radius", 3);
 	obs_data_set_default_bool(settings, "show_split", false);
+	obs_data_set_default_bool(settings, "linear_light", true);
 	obs_data_set_default_bool(settings, "has_sample", false);
 	obs_data_set_default_double(settings, "last_sample_r", 0.5);
 	obs_data_set_default_double(settings, "last_sample_g", 0.5);
@@ -432,11 +436,21 @@ static void nb_video_render(void *data, gs_effect_t *effect)
 	 * can be analysed (auto methods) or captured (eyedropper) before the
 	 * corrected image is drawn. This is the documented fallback pattern for
 	 * filters that need access to the input texture. */
-	gs_texrender_reset(f->input_render);
+	/* Reuse the texture when the size is unchanged; recreating it every frame
+	 * renders into recycled VRAM (ghost images). Clear before drawing so
+	 * regions the source does not cover stay black. */
+	if (f->input_w != w || f->input_h != h) {
+		gs_texrender_reset(f->input_render);
+		f->input_w = w;
+		f->input_h = h;
+	}
 	if (!gs_texrender_begin(f->input_render, w, h)) {
 		obs_source_video_render(target);
 		return;
 	}
+	struct vec4 black;
+	vec4_set(&black, 0.0f, 0.0f, 0.0f, 1.0f);
+	gs_clear(GS_CLEAR_COLOR, &black, 0.0f, 0);
 	obs_source_video_render(target);
 	gs_texrender_end(f->input_render);
 
@@ -471,15 +485,29 @@ static enum gs_color_space nb_video_get_color_space(void *data, size_t count,
 /* Properties UI                                                             */
 /* ------------------------------------------------------------------------- */
 
+static bool sample_edited(obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
+{
+	/* Treat any direct numeric edit of the sampled color as a valid sample,
+	 * so the gains recompute from it immediately. */
+	obs_data_set_bool(settings, "has_sample", true);
+	UNUSED_PARAMETER(props);
+	UNUSED_PARAMETER(p);
+	return true;
+}
+
 static bool method_modified(obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
 {
 	const long method = (long)obs_data_get_int(settings, "method");
+	const bool manual = method == NB_METHOD_MANUAL;
 
 	obs_property_set_visible(obs_properties_get(props, "shades_p"), method == NB_METHOD_SHADES_OF_GREY);
-	obs_property_set_visible(obs_properties_get(props, "pick_neutral"), method == NB_METHOD_MANUAL);
-	obs_property_set_visible(obs_properties_get(props, "sample_radius"), method == NB_METHOD_MANUAL);
-	obs_property_set_visible(obs_properties_get(props, "target_hue"), method == NB_METHOD_MANUAL);
-	obs_property_set_visible(obs_properties_get(props, "target_luminance"), method == NB_METHOD_MANUAL);
+	obs_property_set_visible(obs_properties_get(props, "pick_neutral"), manual);
+	obs_property_set_visible(obs_properties_get(props, "sample_radius"), manual);
+	obs_property_set_visible(obs_properties_get(props, "last_sample_r"), manual);
+	obs_property_set_visible(obs_properties_get(props, "last_sample_g"), manual);
+	obs_property_set_visible(obs_properties_get(props, "last_sample_b"), manual);
+	obs_property_set_visible(obs_properties_get(props, "target_hue"), manual);
+	obs_property_set_visible(obs_properties_get(props, "target_luminance"), manual);
 
 	UNUSED_PARAMETER(p);
 	return true;
@@ -559,7 +587,7 @@ static void nb_set_status_text(obs_properties_t *props, struct neutral_balance *
 
 	char text[256];
 	snprintf(text, sizeof(text),
-		 "Last sample: R %.0f G %.0f B %.0f  |  Gains: R %.2f / G %.2f / B %.2f",
+		 "Last sample: R %.0f G %.0f B %.0f  |  Gains: R %.3f / G %.3f / B %.3f",
 		 f->last_sample[0] * 255.0f, f->last_sample[1] * 255.0f, f->last_sample[2] * 255.0f,
 		 (double)f->gains[0], (double)f->gains[1], (double)f->gains[2]);
 	obs_property_set_description(status, text);
@@ -581,11 +609,22 @@ static obs_properties_t *nb_properties(void *data)
 	obs_properties_add_float_slider(props, "shades_p", obs_module_text("ShadesP"), 1.0, 12.0, 0.1);
 	obs_properties_add_button(props, "pick_neutral", obs_module_text("PickNeutral"), pick_neutral_clicked);
 	obs_properties_add_int_slider(props, "sample_radius", obs_module_text("SampleRadius"), 1, 10, 1);
-	obs_properties_add_float_slider(props, "target_hue", obs_module_text("TargetHue"), 0.0, 360.0, 1.0);
+
+	obs_property_t *sample_r = obs_properties_add_float(props, "last_sample_r", obs_module_text("SampleR"), 0.0, 1.0,
+							    0.001);
+	obs_property_t *sample_g = obs_properties_add_float(props, "last_sample_g", obs_module_text("SampleG"), 0.0, 1.0,
+							    0.001);
+	obs_property_t *sample_b = obs_properties_add_float(props, "last_sample_b", obs_module_text("SampleB"), 0.0, 1.0,
+							    0.001);
+	obs_property_set_modified_callback(sample_r, sample_edited);
+	obs_property_set_modified_callback(sample_g, sample_edited);
+	obs_property_set_modified_callback(sample_b, sample_edited);
+	obs_properties_add_float_slider(props, "target_hue", obs_module_text("TargetHue"), 0.0, 360.0, 0.1);
 	obs_properties_add_float_slider(props, "target_luminance", obs_module_text("TargetLuminance"), 0.0, 100.0,
-					1.0);
+					0.5);
 	obs_properties_add_button(props, "reset", obs_module_text("Reset"), reset_clicked);
-	obs_properties_add_bool(props, "show_split", obs_module_text("ShowSplit"));
+	obs_properties_add_bool(props, "show_split", obs_module_text("ShowSplit"), false);
+	obs_properties_add_bool(props, "linear_light", obs_module_text("LinearLight"), true);
 	obs_properties_add_text(props, "sample_status", obs_module_text("Status"), OBS_TEXT_INFO);
 
 	/* Apply visibility for the current settings (data may be NULL in some

@@ -5,6 +5,7 @@ uniform float3 gains;   /* per-channel white balance gains */
 uniform float hue_bias; /* target neutral hue, degrees (YIQ rotation) */
 uniform float lum_bias;   /* additive lightness bias around middle gray */
 uniform float split_pos;  /* > 0: left fraction of the frame shows the uncorrected image */
+uniform float linear_mode; /* != 0: apply gains in linear light (preserves hue) */
 
 sampler_state linear_sampler {
 	Filter = Linear;
@@ -44,12 +45,31 @@ float3 hue_rotate(float3 color, float deg)
 	return saturate(float3(r, g, b));
 }
 
+/* IEC 61966-2-1 (sRGB) piecewise transfer functions */
+float3 srgb_to_linear(float3 c)
+{
+	c = saturate(c);
+	float3 lo = c / 12.92;
+	float3 hi = pow((c + 0.055) / 1.055, 2.4);
+	return lerp(lo, hi, step(0.04045, c));
+}
+
+float3 linear_to_srgb(float3 c)
+{
+	float3 lo = c * 12.92;
+	float3 hi = 1.055 * pow(c, 1.0 / 2.4) - 0.055;
+	return lerp(lo, hi, step(0.0031308, c));
+}
+
 float4 mainpixel(VertData v) : SV_Target
 {
 	float4 c = image.Sample(linear_sampler, v.uv);
 	if (split_pos > 0.0 && v.uv.x < split_pos)
 		return c;
-	c.rgb = saturate(c.rgb * gains);
+	if (linear_mode != 0.0)
+		c.rgb = saturate(linear_to_srgb(srgb_to_linear(c.rgb) * gains));
+	else
+		c.rgb = saturate(c.rgb * gains);
 	c.rgb = hue_rotate(c.rgb, hue_bias);
 	c.rgb = saturate(c.rgb + lum_bias);
 	return c;

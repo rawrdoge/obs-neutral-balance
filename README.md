@@ -16,6 +16,9 @@ Implements PRD `OBS-NB-PRD-001` (see `docs/` in the project repo).
 - **Grey World** and **Shades of Grey** automatic estimation (Minkowski `p`
   adjustable, default 6 per Finlayson & Trezzi), computed from a 160x90
   downscaled read-back at 10 Hz with temporal smoothing.
+- **Linear-light correction** - gains are applied in linear light (IEC 61966-2-1
+  sRGB EOTF), preserving hue across luminance for fine-grained, artifact-free
+  corrections; toggleable in the filter properties.
 - **Split preview** - a live before/after divider (left = uncorrected input,
   right = corrected output) to make any correction - or the lack of one -
   immediately visible.
@@ -82,12 +85,18 @@ Restart OBS, then: right-click a source -> **Filters** -> **+** ->
 
 1. Add the filter to your source.
 2. (Manual mode) Click **Pick Neutral...** and click a gray card or neutral
-   surface in the frozen frame. The status line shows the sample and gains.
-3. Enable **Split preview** to compare before (left) and after (right) in the
+   surface in the frozen frame - or type the sampled **R/G/B values (0-1)**
+   directly into the numeric fields (e.g. from a color meter). The status line
+   shows the sample and gains.
+3. **Target luminance** is a true gain/exposure axis: the sampled color maps
+   exactly onto it (channel ratios carry the white balance), and with
+   linear-light enabled this is exposure-faithful. It is not a brightness
+   filter.
+4. Enable **Split preview** to compare before (left) and after (right) in the
    live output - useful for judging the automatic methods and slider effects.
    Adjust **Target neutral hue** to warm/cool the neutral and **Target
    luminance** to shift its lightness.
-4. Or switch the method to Grey World / Shades of Grey for fully automatic
+5. Or switch the method to Grey World / Shades of Grey for fully automatic
    correction. Note that Grey World (p=1) and Shades of Grey (default p=6) can
    produce very similar results on typical indoor scenes - raise `p` toward
    12 to move toward white-patch behavior and use the split preview to judge.
@@ -127,7 +136,8 @@ preview.
 
 - Hue/luminance bias uses YIQ/HSL-style math rather than full CIE LCh
   (PRD open question #1).
-- Grey World / Shades of Grey statistics run in the gamma-encoded domain.
+- Grey World / Shades of Grey statistics are still gathered in the encoded RGB
+  domain (the gain application itself is linear-light).
 - No auto-estimation "lock" button yet (PRD open question #3).
 
 ## License

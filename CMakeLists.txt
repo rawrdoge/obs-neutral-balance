@@ -23,6 +23,12 @@ target_sources(obs-neutral-balance PRIVATE
 target_include_directories(obs-neutral-balance PRIVATE src)
 target_link_libraries(obs-neutral-balance PRIVATE OBS::libobs)
 
+# glibc hides PTHREAD_MUTEX_RECURSIVE etc. under strict ANSI C; obs-studio's
+# own build defines _GNU_SOURCE globally - mirror that for portability.
+if(NOT WIN32)
+	target_compile_definitions(obs-neutral-balance PRIVATE _GNU_SOURCE)
+endif()
+
 set_target_properties(obs-neutral-balance PROPERTIES
 	PREFIX ""
 	C_STANDARD 17
