@@ -37,6 +37,7 @@
  */
 
 #include <math.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -242,16 +243,20 @@ static void nb_do_capture(struct neutral_balance *f, gs_texture_t *input, uint32
 		f->capture_w = w;
 		f->capture_h = h;
 	}
-	if (!f->capture_surface)
+	if (!f->capture_surface) {
+		blog(LOG_WARNING, "[neutral-balance] capture stagesurface create failed (%ux%u)", w, h);
 		return;
+	}
 
 	/* One-shot read-back of the *uncorrected* filter input (PRD FR-09). */
 	gs_stage_texture(f->capture_surface, input);
 
 	uint8_t *data = NULL;
 	uint32_t linesize = 0;
-	if (!gs_stagesurface_map(f->capture_surface, &data, &linesize))
+	if (!gs_stagesurface_map(f->capture_surface, &data, &linesize)) {
+		blog(LOG_WARNING, "[neutral-balance] capture stagesurface map failed");
 		return;
+	}
 
 	size_t size = (size_t)w * h * 4;
 	f->capture_buf = brealloc(f->capture_buf, size);
@@ -272,9 +277,9 @@ static bool nb_request_capture(struct neutral_balance *f, uint8_t **out_buf, uin
 	os_event_reset(f->capture_done);
 	f->capture_requested = true;
 
-	/* Wait up to ~2 s; if the source is hidden or removed the filter never
+	/* Wait up to ~5 s; if the source is hidden or removed the filter never
 	 * renders and we must not block the UI thread (NFR-02). */
-	for (int i = 0; i < 40; i++) {
+	for (int i = 0; i < 100; i++) {
 		if (f->capture_ready && f->capture_buf) {
 			size_t size = (size_t)f->capture_w * f->capture_h * 4;
 			uint8_t *copy = bmalloc(size);
@@ -389,6 +394,7 @@ static void nb_get_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "target_luminance", 50.0);
 	obs_data_set_default_int(settings, "sample_radius", 3);
 	obs_data_set_default_bool(settings, "show_split", false);
+	obs_data_set_default_string(settings, "sample_rgb_text", "");
 	obs_data_set_default_bool(settings, "linear_light", true);
 	obs_data_set_default_bool(settings, "has_sample", false);
 	obs_data_set_default_double(settings, "last_sample_r", 0.5);
@@ -436,15 +442,16 @@ static void nb_video_render(void *data, gs_effect_t *effect)
 	 * can be analysed (auto methods) or captured (eyedropper) before the
 	 * corrected image is drawn. This is the documented fallback pattern for
 	 * filters that need access to the input texture. */
-	/* Reuse the texture when the size is unchanged; recreating it every frame
-	 * renders into recycled VRAM (ghost images). Clear before drawing so
-	 * regions the source does not cover stay black. */
-	if (f->input_w != w || f->input_h != h) {
-		gs_texrender_reset(f->input_render);
-		f->input_w = w;
-		f->input_h = h;
-	}
+	/* Recreate the texture per use (matches the known-good capture path) and
+	 * clear before drawing so regions the source does not cover stay black
+	 * instead of showing recycled VRAM. */
+	gs_texrender_reset(f->input_render);
 	if (!gs_texrender_begin(f->input_render, w, h)) {
+		if (!f->logged_begin_fail) {
+			blog(LOG_WARNING, "[neutral-balance] texrender_begin failed (%ux%u); "
+					  "capture/analysis disabled", w, h);
+			f->logged_begin_fail = true;
+		}
 		obs_source_video_render(target);
 		return;
 	}
@@ -453,6 +460,7 @@ static void nb_video_render(void *data, gs_effect_t *effect)
 	gs_clear(GS_CLEAR_COLOR, &black, 0.0f, 0);
 	obs_source_video_render(target);
 	gs_texrender_end(f->input_render);
+	f->logged_begin_fail = false;
 
 	gs_texture_t *input = gs_texrender_get_texture(f->input_render);
 	if (!input)
@@ -485,11 +493,39 @@ static enum gs_color_space nb_video_get_color_space(void *data, size_t count,
 /* Properties UI                                                             */
 /* ------------------------------------------------------------------------- */
 
-static bool sample_edited(obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
+static void nb_sync_sample_text(obs_data_t *settings, const float rgb[3])
 {
-	/* Treat any direct numeric edit of the sampled color as a valid sample,
-	 * so the gains recompute from it immediately. */
-	obs_data_set_bool(settings, "has_sample", true);
+	char text[64];
+	snprintf(text, sizeof(text), "%d, %d, %d", (int)(rgb[0] * 255.0f + 0.5f),
+		 (int)(rgb[1] * 255.0f + 0.5f), (int)(rgb[2] * 255.0f + 0.5f));
+	obs_data_set_string(settings, "sample_rgb_text", text);
+}
+
+/* Unified "Sample: (R,G,B)" input on the 0-255 scale. Any separator works. */
+static bool sample_text_modified(obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
+{
+	const char *s = obs_data_get_string(settings, "sample_rgb_text");
+	int vals[3];
+	int i = 0;
+
+	while (*s && i < 3) {
+		char *end = NULL;
+		const long v = strtol(s, &end, 10);
+		if (end == s) {
+			s++;
+			continue;
+		}
+		vals[i++] = (int)v;
+		s = end;
+	}
+
+	if (i == 3) {
+		obs_data_set_double(settings, "last_sample_r", (double)vals[0] / 255.0);
+		obs_data_set_double(settings, "last_sample_g", (double)vals[1] / 255.0);
+		obs_data_set_double(settings, "last_sample_b", (double)vals[2] / 255.0);
+		obs_data_set_bool(settings, "has_sample", true);
+	}
+
 	UNUSED_PARAMETER(props);
 	UNUSED_PARAMETER(p);
 	return true;
@@ -503,9 +539,7 @@ static bool method_modified(obs_properties_t *props, obs_property_t *p, obs_data
 	obs_property_set_visible(obs_properties_get(props, "shades_p"), method == NB_METHOD_SHADES_OF_GREY);
 	obs_property_set_visible(obs_properties_get(props, "pick_neutral"), manual);
 	obs_property_set_visible(obs_properties_get(props, "sample_radius"), manual);
-	obs_property_set_visible(obs_properties_get(props, "last_sample_r"), manual);
-	obs_property_set_visible(obs_properties_get(props, "last_sample_g"), manual);
-	obs_property_set_visible(obs_properties_get(props, "last_sample_b"), manual);
+	obs_property_set_visible(obs_properties_get(props, "sample_rgb_text"), manual);
 	obs_property_set_visible(obs_properties_get(props, "target_hue"), manual);
 	obs_property_set_visible(obs_properties_get(props, "target_luminance"), manual);
 
@@ -520,7 +554,9 @@ static bool pick_neutral_clicked(obs_properties_t *props, obs_property_t *p, voi
 	uint32_t w = 0, h = 0;
 
 	if (!nb_eyedropper_available()) {
-		blog(LOG_WARNING, "[neutral-balance] built without Qt - eyedropper unavailable");
+		blog(LOG_WARNING,
+		     "[neutral-balance] this build has no Qt - the eyedropper dialog is unavailable "
+		     "(install Qt6 Widgets dev package and rebuild; the automatic methods still work)");
 		return false;
 	}
 
@@ -533,8 +569,10 @@ static bool pick_neutral_clicked(obs_properties_t *props, obs_property_t *p, voi
 	const bool ok = nb_eyedropper_sample_rgba(buf, w, h, (int)f->sample_radius, rgb);
 	bfree(buf);
 
-	if (!ok)
+	if (!ok) {
+		blog(LOG_INFO, "[neutral-balance] sampling dialog closed without a selection");
 		return false;
+	}
 
 	nb_compute_manual_gains(f, rgb[0], rgb[1], rgb[2]);
 
@@ -547,6 +585,7 @@ static bool pick_neutral_clicked(obs_properties_t *props, obs_property_t *p, voi
 	obs_data_set_double(settings, "gain_r", f->gains[0]);
 	obs_data_set_double(settings, "gain_g", f->gains[1]);
 	obs_data_set_double(settings, "gain_b", f->gains[2]);
+	nb_sync_sample_text(settings, rgb);
 	obs_source_update(f->context, settings);
 	obs_data_release(settings);
 
@@ -566,6 +605,7 @@ static bool reset_clicked(obs_properties_t *props, obs_property_t *p, void *data
 	obs_data_set_double(settings, "last_sample_r", 0.5);
 	obs_data_set_double(settings, "last_sample_g", 0.5);
 	obs_data_set_double(settings, "last_sample_b", 0.5);
+	obs_data_set_string(settings, "sample_rgb_text", "");
 	obs_source_update(f->context, settings);
 	obs_data_release(settings);
 
@@ -610,15 +650,9 @@ static obs_properties_t *nb_properties(void *data)
 	obs_properties_add_button(props, "pick_neutral", obs_module_text("PickNeutral"), pick_neutral_clicked);
 	obs_properties_add_int_slider(props, "sample_radius", obs_module_text("SampleRadius"), 1, 10, 1);
 
-	obs_property_t *sample_r = obs_properties_add_float(props, "last_sample_r", obs_module_text("SampleR"), 0.0, 1.0,
-							    0.001);
-	obs_property_t *sample_g = obs_properties_add_float(props, "last_sample_g", obs_module_text("SampleG"), 0.0, 1.0,
-							    0.001);
-	obs_property_t *sample_b = obs_properties_add_float(props, "last_sample_b", obs_module_text("SampleB"), 0.0, 1.0,
-							    0.001);
-	obs_property_set_modified_callback(sample_r, sample_edited);
-	obs_property_set_modified_callback(sample_g, sample_edited);
-	obs_property_set_modified_callback(sample_b, sample_edited);
+	obs_property_t *sample_text = obs_properties_add_text(props, "sample_rgb_text",
+								obs_module_text("SampleText"), OBS_TEXT_DEFAULT);
+	obs_property_set_modified_callback(sample_text, sample_text_modified);
 	obs_properties_add_float_slider(props, "target_hue", obs_module_text("TargetHue"), 0.0, 360.0, 0.1);
 	obs_properties_add_float_slider(props, "target_luminance", obs_module_text("TargetLuminance"), 0.0, 100.0,
 					0.5);

@@ -46,7 +46,7 @@ struct neutral_balance {
 	gs_eparam_t *param_split;
 	gs_eparam_t *param_linear;
 	gs_texrender_t *input_render;
-	uint32_t input_w, input_h;
+	bool logged_begin_fail;
 
 	/* automatic estimation pipeline - render thread only */
 	gs_texrender_t *stats_render;
