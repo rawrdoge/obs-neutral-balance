@@ -101,6 +101,20 @@ Restart OBS, then: right-click a source -> **Filters** -> **+** ->
   `graphics/graphics.h`, `util/*`); code is formatted with OBS's
   `.clang-format`.
 
+
+## Troubleshooting
+
+**The correction looks magenta/cyan or otherwise wrong.**
+The sampled area was not actually neutral. The eyedropper dialog warns when the
+sampled pixels have high chroma (channel spread over ~30 of 255) - if you see that
+warning, re-pick a true gray/white surface. Enlarging the sample radius only helps
+when the whole area is one uniform neutral color; over a gradient or mixed surface it
+makes the estimate worse. The dialog also shows the sampled RGB values: compare
+them against what you expect before accepting. Remember the frozen frame is the
+filter input at its native resolution - if the source is cropped, scaled, or
+mirrored in the scene, sample by what you see in the dialog window, not the OBS
+preview.
+
 ## Known limitations / roadmap (v1.1)
 
 - Hue/luminance bias uses YIQ/HSL-style math rather than full CIE LCh

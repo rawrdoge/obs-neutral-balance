@@ -233,7 +233,9 @@ bool nb_eyedropper_sample_rgba(const uint8_t *data, uint32_t width, uint32_t hei
 	auto *layout = new QVBoxLayout(&dialog);
 	auto *hint = new QLabel(QStringLiteral(
 		"Click a gray or white area of this frozen frame. The sampled area is mapped to the "
-		"target neutral; adjust hue and luminance afterwards to bias the correction."),
+		"target neutral; adjust hue and luminance afterwards to bias the correction.\n\n"
+		"Note: this is the filter input at its native resolution - if the source is cropped, "
+		"scaled, or mirrored in your scene, trust what you see in this window, not the preview."),
 				&dialog);
 	hint->setWordWrap(true);
 	layout->addWidget(hint);
@@ -252,8 +254,20 @@ bool nb_eyedropper_sample_rgba(const uint8_t *data, uint32_t width, uint32_t hei
 	QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 	QObject::connect(area, &SampleArea::selectionChanged, &dialog,
 			 [info, buttons](float r, float g, float b) {
-				 info->setText(QStringLiteral("Sample: R %1  G %2  B %3").arg(int(r * 255.0)).arg(int(g * 255.0)).arg(
-					 int(b * 255.0)));
+				 const float hi = qMax(r, qMax(g, b));
+				 const float lo = qMin(r, qMin(g, b));
+				 QString text = QStringLiteral("Sample: R %1  G %2  B %3")
+							.arg(int(r * 255.0))
+							.arg(int(g * 255.0))
+							.arg(int(b * 255.0));
+				 if (hi - lo > 0.12f) {
+					 text += QStringLiteral(
+						 "  -  WARNING: sampled area is not neutral (channel spread %1). The correction "
+						 "will be wrong - pick a true gray/white patch; a larger radius only helps "
+						 "on a uniformly neutral surface.")
+								.arg(int((hi - lo) * 255.0));
+				 }
+				 info->setText(text);
 				 buttons->button(QDialogButtonBox::Ok)->setEnabled(true);
 			 });
 

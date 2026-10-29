@@ -36,9 +36,11 @@ float3 hue_rotate(float3 color, float deg)
 	float s = sin(rad);
 	float i2 = i * c - q * s;
 	float q2 = i * s + q * c;
-	float3 rgb = float3(1.0, 0.956, 1.621) * y + float3(1.0, -0.272, -0.647) * i2 +
-		     float3(1.0, -1.106, 1.703) * q2;
-	return saturate(rgb);
+	/* YIQ -> RGB inverse, one output channel per row */
+	float r = y + 0.956 * i2 + 0.621 * q2;
+	float g = y - 0.272 * i2 - 0.647 * q2;
+	float b = y - 1.106 * i2 + 1.703 * q2;
+	return saturate(float3(r, g, b));
 }
 
 float4 mainpixel(VertData v) : SV_Target
