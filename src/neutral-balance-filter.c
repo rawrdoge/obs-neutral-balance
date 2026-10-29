@@ -109,6 +109,7 @@ static void nb_load_effect(struct neutral_balance *f)
 	f->param_gains = gs_effect_get_param_by_name(f->effect, "gains");
 	f->param_hue_bias = gs_effect_get_param_by_name(f->effect, "hue_bias");
 	f->param_lum_bias = gs_effect_get_param_by_name(f->effect, "lum_bias");
+	f->param_split = gs_effect_get_param_by_name(f->effect, "split_pos");
 }
 
 static void nb_set_effect_params(struct neutral_balance *f)
@@ -125,12 +126,17 @@ static void nb_set_effect_params(struct neutral_balance *f)
 		gs_effect_set_float(f->param_hue_bias, 0.0f);
 		gs_effect_set_float(f->param_lum_bias, 0.0f);
 	}
+	gs_effect_set_float(f->param_split, f->show_split ? 0.5f : 0.0f);
 }
 
 /* ------------------------------------------------------------------------- */
 /* Automatic estimation (Grey World / Shades of Grey)                        */
 /* ------------------------------------------------------------------------- */
 
+/* Grey World (Buchsbaum 1980) and Shades of Grey (Finlayson & Trezzi 2004):
+ * the per-channel Minkowski p-norm over the frame estimates the illuminant
+ * (p=1 -> Grey World, p=6 best on a calibrated dataset, p=inf -> max-RGB).
+ * Gains equalize the estimates to their mean; see README "Research basis". */
 static void nb_update_stats(struct neutral_balance *f, gs_texture_t *input)
 {
 	uint64_t now = os_gettime_ns();
@@ -353,6 +359,7 @@ static void nb_update(void *data, obs_data_t *settings)
 	f->target_hue = (float)obs_data_get_double(settings, "target_hue");
 	f->target_luminance = (float)obs_data_get_double(settings, "target_luminance") / 100.0f;
 	f->sample_radius = (long)obs_data_get_int(settings, "sample_radius");
+	f->show_split = obs_data_get_bool(settings, "show_split");
 	f->has_sample = obs_data_get_bool(settings, "has_sample");
 	f->last_sample[0] = (float)obs_data_get_double(settings, "last_sample_r");
 	f->last_sample[1] = (float)obs_data_get_double(settings, "last_sample_g");
@@ -378,6 +385,7 @@ static void nb_get_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "target_hue", 0.0);
 	obs_data_set_default_double(settings, "target_luminance", 50.0);
 	obs_data_set_default_int(settings, "sample_radius", 3);
+	obs_data_set_default_bool(settings, "show_split", false);
 	obs_data_set_default_bool(settings, "has_sample", false);
 	obs_data_set_default_double(settings, "last_sample_r", 0.5);
 	obs_data_set_default_double(settings, "last_sample_g", 0.5);
@@ -577,6 +585,7 @@ static obs_properties_t *nb_properties(void *data)
 	obs_properties_add_float_slider(props, "target_luminance", obs_module_text("TargetLuminance"), 0.0, 100.0,
 					1.0);
 	obs_properties_add_button(props, "reset", obs_module_text("Reset"), reset_clicked);
+	obs_properties_add_bool(props, "show_split", obs_module_text("ShowSplit"));
 	obs_properties_add_text(props, "sample_status", obs_module_text("Status"), OBS_TEXT_INFO);
 
 	/* Apply visibility for the current settings (data may be NULL in some

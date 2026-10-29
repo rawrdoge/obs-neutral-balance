@@ -43,6 +43,7 @@ struct neutral_balance {
 	gs_eparam_t *param_gains;
 	gs_eparam_t *param_hue_bias;
 	gs_eparam_t *param_lum_bias;
+	gs_eparam_t *param_split;
 	gs_texrender_t *input_render;
 
 	/* automatic estimation pipeline - render thread only */
@@ -65,6 +66,7 @@ struct neutral_balance {
 	float target_hue;       /* degrees, 0..360 */
 	float target_luminance; /* 0..1 */
 	long sample_radius;
+	bool show_split;
 	float last_sample[3];
 	bool has_sample;
 };

@@ -16,6 +16,9 @@ Implements PRD `OBS-NB-PRD-001` (see `docs/` in the project repo).
 - **Grey World** and **Shades of Grey** automatic estimation (Minkowski `p`
   adjustable, default 6 per Finlayson & Trezzi), computed from a 160x90
   downscaled read-back at 10 Hz with temporal smoothing.
+- **Split preview** - a live before/after divider (left = uncorrected input,
+  right = corrected output) to make any correction - or the lack of one -
+  immediately visible.
 - **Target hue (0-360 deg) and luminance (0-100 %) sliders** that bias the
   correction in real time, mirroring darktable's perceptual target controls
   (v1 uses a YIQ hue rotation + lightness offset; CIE LCh is planned for v1.1).
@@ -80,10 +83,14 @@ Restart OBS, then: right-click a source -> **Filters** -> **+** ->
 1. Add the filter to your source.
 2. (Manual mode) Click **Pick Neutral...** and click a gray card or neutral
    surface in the frozen frame. The status line shows the sample and gains.
-3. Adjust **Target neutral hue** to warm/cool the neutral and **Target
+3. Enable **Split preview** to compare before (left) and after (right) in the
+   live output - useful for judging the automatic methods and slider effects.
+   Adjust **Target neutral hue** to warm/cool the neutral and **Target
    luminance** to shift its lightness.
 4. Or switch the method to Grey World / Shades of Grey for fully automatic
-   correction; tweak `p` to taste.
+   correction. Note that Grey World (p=1) and Shades of Grey (default p=6) can
+   produce very similar results on typical indoor scenes - raise `p` toward
+   12 to move toward white-patch behavior and use the split preview to judge.
 5. **Reset to Neutral** restores identity gains and defaults.
 
 ## Architecture notes
@@ -115,7 +122,8 @@ filter input at its native resolution - if the source is cropped, scaled, or
 mirrored in the scene, sample by what you see in the dialog window, not the OBS
 preview.
 
-## Known limitations / roadmap (v1.1)
+
+## Known limitations
 
 - Hue/luminance bias uses YIQ/HSL-style math rather than full CIE LCh
   (PRD open question #1).

@@ -3,7 +3,8 @@ uniform texture2d image;
 
 uniform float3 gains;   /* per-channel white balance gains */
 uniform float hue_bias; /* target neutral hue, degrees (YIQ rotation) */
-uniform float lum_bias; /* additive lightness bias around middle gray */
+uniform float lum_bias;   /* additive lightness bias around middle gray */
+uniform float split_pos;  /* > 0: left fraction of the frame shows the uncorrected image */
 
 sampler_state linear_sampler {
 	Filter = Linear;
@@ -46,6 +47,8 @@ float3 hue_rotate(float3 color, float deg)
 float4 mainpixel(VertData v) : SV_Target
 {
 	float4 c = image.Sample(linear_sampler, v.uv);
+	if (split_pos > 0.0 && v.uv.x < split_pos)
+		return c;
 	c.rgb = saturate(c.rgb * gains);
 	c.rgb = hue_rotate(c.rgb, hue_bias);
 	c.rgb = saturate(c.rgb + lum_bias);

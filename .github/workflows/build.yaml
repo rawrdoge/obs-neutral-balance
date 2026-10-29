@@ -192,16 +192,17 @@ jobs:
             exit 0
           fi
           hdr=$(find libobs-prefix -name obs-module.h | head -1)
-          if [ -n "$hdr" ]; then inc_dir=$(dirname "$hdr"); else inc_dir="obs-studio/libobs"; fi
+          if [ -n "$hdr" ]; then inc_dir="$PWD/$(dirname "$hdr")"; else inc_dir="$PWD/obs-studio/libobs"; fi
           inc_list="$inc_dir"
-          [ -d obs-studio/build/libobs ] && inc_list="$inc_list;obs-studio/build/libobs"
+          [ -d obs-studio/build/libobs ] && inc_list="$inc_list;$PWD/obs-studio/build/libobs"
           gen=$(find obs-studio/build obs-studio/build_x64 -name obsconfig.h 2>/dev/null | grep -v x86 | head -1)
-          [ -n "$gen" ] && inc_list="$inc_list;$(dirname "$gen")"
+          [ -n "$gen" ] && inc_list="$inc_list;$PWD/$(dirname "$gen")"
           lib=$(find libobs-prefix \( -name 'libobs.so' -o -name 'libobs.dylib' \) | head -1)
           [ -z "$lib" ] && lib=$(find libobs-prefix -path '*.framework/libobs' | head -1)
           if [ -z "$lib" ]; then
             lib=$(find obs-studio/build obs-studio/build_x64 \( -name 'libobs.so' -o -name 'libobs.dylib' -o -name 'obs.lib' \) 2>/dev/null | grep -v x86 | head -1)
           fi
+          [ -n "$lib" ] && lib="$PWD/$lib"
           if [ ! -d "$inc_dir" ] || [ -z "$lib" ]; then
             echo "Could not locate libobs headers or library under libobs-prefix or obs-studio"
             exit 1
