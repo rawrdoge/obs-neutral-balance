@@ -67,6 +67,8 @@ jobs:
             $incList = $incDir.Replace('\', '/')
             $buildInc = "$srcRoot/build/libobs"
             if (Test-Path $buildInc) { $incList = "$incList;$($buildInc.Replace('\', '/'))" }
+            $genHdr = Get-ChildItem -Path "$srcRoot/build", "$srcRoot/build_x64" -Recurse -Filter obsconfig.h -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch 'x86' } | Select-Object -First 1
+            if ($genHdr) { $incList = "$incList;$($genHdr.DirectoryName.Replace('\', '/'))" }
             # Import library: prefer the install prefix, fall back to the build tree
             $implibPath = $null
             $implib = Get-ChildItem -Path $prefix -Recurse -Filter obs.lib -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -159,6 +161,8 @@ jobs:
           if [ -n "$hdr" ]; then inc_dir=$(dirname "$hdr"); else inc_dir="obs-studio/libobs"; fi
           inc_list="$inc_dir"
           [ -d obs-studio/build/libobs ] && inc_list="$inc_list;obs-studio/build/libobs"
+          gen=$(find obs-studio/build obs-studio/build_x64 -name obsconfig.h 2>/dev/null | grep -v x86 | head -1)
+          [ -n "$gen" ] && inc_list="$inc_list;$(dirname "$gen")"
           lib=$(find libobs-prefix \( -name 'libobs.so' -o -name 'libobs.dylib' \) | head -1)
           [ -z "$lib" ] && lib=$(find libobs-prefix -path '*.framework/libobs' | head -1)
           if [ -z "$lib" ]; then
@@ -244,6 +248,8 @@ jobs:
           if [ -n "$hdr" ]; then inc_dir=$(dirname "$hdr"); else inc_dir="obs-studio/libobs"; fi
           inc_list="$inc_dir"
           [ -d obs-studio/build/libobs ] && inc_list="$inc_list;obs-studio/build/libobs"
+          gen=$(find obs-studio/build obs-studio/build_x64 -name obsconfig.h 2>/dev/null | grep -v x86 | head -1)
+          [ -n "$gen" ] && inc_list="$inc_list;$(dirname "$gen")"
           lib=$(find libobs-prefix \( -name 'libobs.so' -o -name 'libobs.dylib' \) | head -1)
           [ -z "$lib" ] && lib=$(find libobs-prefix -path '*.framework/libobs' | head -1)
           if [ -z "$lib" ]; then
