@@ -221,7 +221,8 @@ bool nb_eyedropper_available(void)
 	return true;
 }
 
-bool nb_eyedropper_sample_rgba(const uint8_t *data, uint32_t width, uint32_t height, int radius, float out_rgb[3])
+bool nb_eyedropper_sample_rgba(const uint8_t *data, uint32_t width, uint32_t height, int radius, float out_rgb[3],
+			       nb_sample_info_fn info_fn, void *user)
 {
 	QImage frame = QImage(data, int(width), int(height), int(width) * 4, QImage::Format_RGBA8888).copy();
 	if (frame.isNull())
@@ -253,7 +254,7 @@ bool nb_eyedropper_sample_rgba(const uint8_t *data, uint32_t width, uint32_t hei
 	QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
 	QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 	QObject::connect(area, &SampleArea::selectionChanged, &dialog,
-			 [info, buttons](float r, float g, float b) {
+			 [info, buttons, info_fn, user](float r, float g, float b) {
 				 const float hi = qMax(r, qMax(g, b));
 				 const float lo = qMin(r, qMin(g, b));
 				 QString text = QStringLiteral("Sample: R %1  G %2  B %3")
@@ -266,6 +267,13 @@ bool nb_eyedropper_sample_rgba(const uint8_t *data, uint32_t width, uint32_t hei
 						 "will be wrong - pick a true gray/white patch; a larger radius only helps "
 						 "on a uniformly neutral surface.")
 								.arg(int((hi - lo) * 255.0));
+				 }
+				 if (info_fn) {
+					 char extra[512] = {0};
+					 const float rgb[3] = {r, g, b};
+					 info_fn(rgb, extra, sizeof(extra), user);
+					 if (extra[0])
+						 text += QString::fromUtf8(extra);
 				 }
 				 info->setText(text);
 				 buttons->button(QDialogButtonBox::Ok)->setEnabled(true);
@@ -287,13 +295,16 @@ bool nb_eyedropper_available(void)
 	return false;
 }
 
-bool nb_eyedropper_sample_rgba(const uint8_t *data, uint32_t width, uint32_t height, int radius, float out_rgb[3])
+bool nb_eyedropper_sample_rgba(const uint8_t *data, uint32_t width, uint32_t height, int radius, float out_rgb[3],
+			       nb_sample_info_fn info_fn, void *user)
 {
 	(void)data;
 	(void)width;
 	(void)height;
 	(void)radius;
 	(void)out_rgb;
+	(void)info_fn;
+	(void)user;
 	return false;
 }
 

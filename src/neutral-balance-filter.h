@@ -13,6 +13,24 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * v2 (OBS-NB-PRD-002): format-aware, linear-light, CAT-based white balance.
+ *
+ * Pipeline per frame (single-pass shader, three ordered stages):
+ *   [stage 1] range is already full-range RGB (OBS converts YUV on-GPU per
+ *             FR-07); inverse EOTF of the detected working space
+ *   [stage 2] 3x3 chromatic-adaptation matrix (float3 rows) computed on the
+ *             CPU from the measured illuminant XYZ and the target LCh white
+ *   [stage 3] forward EOTF back to the source encoding
+ *
+ * The measured illuminant comes from Grey World / Shades of Grey statistics
+ * (linear light, FR-09..FR-13) or the eyedropper (FR-25: sampled in the
+ * native encoding, linearized before solving). Statistics and the eyedropper
+ * run on an RGBA8 read-back; 8-bit samples are linearized through a 256-entry
+ * LUT. The CPU-side colorimetry (LCh -> XYZ, CAT, DeltaE00) runs in double
+ * precision (NFR-04).
+ */
+
 #pragma once
 
 #include <obs.h>
@@ -28,11 +46,23 @@ enum nb_method {
 	NB_METHOD_MANUAL = 2,
 };
 
-/* Statistics are gathered from a small downscaled copy of the frame; this
- * keeps CPU-side reads cheap and well under the PRD performance budget. */
+enum nb_cat_method {
+	NB_CAT_BRADFORD = 0,
+	NB_CAT_CAT02 = 1,
+	NB_CAT_CAT16 = 2,
+	NB_CAT_VON_KRIES = 3, /* HPE cone space */
+	NB_CAT_DIAGONAL = 4,  /* identity cone matrix (legacy comparison, FR-18) */
+};
+
+enum nb_working_space {
+	NB_WS_SRGB = 0,
+	NB_WS_BT709 = 1,
+};
+
 #define NB_STATS_W 160
 #define NB_STATS_H 90
 #define NB_STATS_INTERVAL_NS (100 * 1000 * 1000) /* 10 Hz */
+#define NB_SMOOTH_ALPHA 0.2f                     /* FR-13 */
 
 struct neutral_balance {
 	obs_source_t *context;
@@ -40,40 +70,61 @@ struct neutral_balance {
 	/* GPU resources - render thread only */
 	gs_effect_t *effect;
 	gs_eparam_t *param_image;
-	gs_eparam_t *param_gains;
-	gs_eparam_t *param_hue_bias;
-	gs_eparam_t *param_lum_bias;
-	gs_eparam_t *param_split;
-	gs_eparam_t *param_linear;
+	gs_eparam_t *param_cat0; /* float3 rows of the 3x3 CAT matrix */
+	gs_eparam_t *param_cat1;
+	gs_eparam_t *param_cat2;
+	gs_eparam_t *param_ws;    /* 0 = sRGB transfer, 1 = BT.709 transfer */
+	gs_eparam_t *param_split; /* > 0: left fraction shows the input */
 	gs_texrender_t *input_render;
 	bool logged_begin_fail;
 
-	/* automatic estimation pipeline - render thread only */
+	/* statistics pipeline - render thread only */
 	gs_texrender_t *stats_render;
 	gs_stagesurf_t *stats_surface;
 	uint64_t last_stats_ts;
 
-	/* eyedropper capture pipeline - render thread only */
+	/* eyedropper capture - render thread only */
 	gs_stagesurf_t *capture_surface;
 	uint32_t capture_w, capture_h;
-	uint8_t *capture_buf; /* owned, freed in destroy */
+	uint8_t *capture_buf;
 	volatile bool capture_requested;
 	volatile bool capture_ready;
 	os_event_t *capture_done;
 
-	/* settings (mirror obs_data_t, see nb_update) */
-	int method;
+	/* settings */
+	int method; /* measurement source */
 	float shades_p;
-	float gains[3];
-	float target_hue;       /* degrees, 0..360 */
-	float target_luminance; /* 0..1 */
+	int cat_method;
+	float target_hue;       /* CIE LCh h, degrees */
+	float target_luminance; /* CIE LCh L, 0-100   */
+	float target_chroma;    /* CIE LCh C, 0-100   */
 	long sample_radius;
 	bool show_split;
-	bool linear_light;
-	float last_sample[3];
+	float last_sample[3]; /* measured color, working-space encoding, 0-1 */
 	bool has_sample;
+
+	/* detected format (FR-01..FR-04) */
+	enum gs_color_space source_space;
+	enum nb_working_space ws;
+	bool logged_space_fallback;
+	float inv_lut[256]; /* encoded byte -> linear, per working space */
+
+	/* correction model */
+	float measured_lin[3]; /* linear illuminant estimate (temporally smoothed) */
+	bool has_measurement;
+	float cat_matrix[9]; /* linear RGB -> linear RGB, incl. exposure term */
+	bool cat_dirty;
+
+	/* diagnostics (FR-27, FR-28) */
+	double match_de;
+	bool has_match;
 };
 
 extern struct obs_source_info neutral_balance_filter_info;
 
-void nb_compute_manual_gains(struct neutral_balance *f, float r, float g, float b);
+/* CPU-side colorimetry (double precision) exposed for tests/diagnostics. */
+void nb_rgb2xyz(const double rgb[3], double xyz[3]);
+void nb_white_from_lch(double L, double C, double h_deg, double xyz_norm[3], double *y_unnorm);
+void nb_cat_matrix(int cat_method, const double src_white_norm[3], const double dst_white_norm[3], double out[9]);
+double nb_delta_e_2000(const double lab1[3], const double lab2[3]);
+void nb_linrgb_to_lab(const double rgb_lin[3], double lab[3]);

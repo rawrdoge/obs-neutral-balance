@@ -16,11 +16,16 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Optional per-selection audit line (FR-27): rgb is the averaged normalized
+ * color in the frame's encoding; the callback renders extra info text. */
+typedef void (*nb_sample_info_fn)(const float rgb[3], char *out, size_t capacity, void *user);
 
 /* Returns true when the plugin was built with the Qt sampling dialog. */
 bool nb_eyedropper_available(void);
@@ -32,9 +37,12 @@ bool nb_eyedropper_available(void);
  * height   - frame height in pixels
  * radius   - sampling radius in pixels (average over (2r+1)^2)
  * out_rgb  - receives the averaged normalized color (0..1) on accept
+ * info_fn  - optional audit callback invoked on every selection change
+ * user     - opaque pointer passed to info_fn
  *
  * Returns true when the user accepted a sample. */
-bool nb_eyedropper_sample_rgba(const uint8_t *data, uint32_t width, uint32_t height, int radius, float out_rgb[3]);
+bool nb_eyedropper_sample_rgba(const uint8_t *data, uint32_t width, uint32_t height, int radius, float out_rgb[3],
+			       nb_sample_info_fn info_fn, void *user);
 
 #ifdef __cplusplus
 }

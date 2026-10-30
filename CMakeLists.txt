@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.16...3.30)
 # Derived from the official obs-plugintemplate (https://github.com/obsproject/obs-plugintemplate)
 # Build against an installed OBS Studio (obs-studio dev package) or an OBS build tree.
 
-project(obs-neutral-balance VERSION 0.1.0 LANGUAGES C CXX)
+project(obs-neutral-balance VERSION 2.0.0 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 # Dependencies
@@ -25,7 +25,10 @@ target_link_libraries(obs-neutral-balance PRIVATE OBS::libobs)
 
 # glibc hides PTHREAD_MUTEX_RECURSIVE etc. under strict ANSI C; obs-studio's
 # own build defines _GNU_SOURCE globally - mirror that for portability.
-if(NOT WIN32)
+# MSVC needs _USE_MATH_DEFINES for M_PI.
+if(WIN32)
+	target_compile_definitions(obs-neutral-balance PRIVATE _USE_MATH_DEFINES)
+else()
 	target_compile_definitions(obs-neutral-balance PRIVATE _GNU_SOURCE)
 endif()
 

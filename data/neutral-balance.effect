@@ -1,11 +1,13 @@
 uniform float4x4 ViewProj;
 uniform texture2d image;
 
-uniform float3 gains;   /* per-channel white balance gains */
-uniform float hue_bias; /* target neutral hue, degrees (YIQ rotation) */
-uniform float lum_bias;   /* additive lightness bias around middle gray */
-uniform float split_pos;  /* > 0: left fraction of the frame shows the uncorrected image */
-uniform float linear_mode; /* != 0: apply gains in linear light (preserves hue) */
+/* 3x3 chromatic-adaptation matrix, uploaded as rows (float3) so the shader
+ * works on every OBS >= 28 regardless of float3x3 uniform support. */
+uniform float3 cat_row0;
+uniform float3 cat_row1;
+uniform float3 cat_row2;
+uniform float ws_mode;   /* 0 = sRGB transfer, 1 = BT.709 transfer */
+uniform float split_pos; /* > 0: left fraction of the frame shows the input */
 
 sampler_state linear_sampler {
 	Filter = Linear;
@@ -26,26 +28,8 @@ VertData mainvertex(VertData v)
 	return o;
 }
 
-/* Rotate hue around the Y (luma) axis - a cheap approximation of the
- * perceptual hue control in darktable's color calibration module. */
-float3 hue_rotate(float3 color, float deg)
-{
-	float rad = radians(deg);
-	float y = dot(color, float3(0.299, 0.587, 0.114));
-	float i = dot(color, float3(0.595716, -0.274453, -0.321263));
-	float q = dot(color, float3(0.211456, -0.522591, 0.311135));
-	float c = cos(rad);
-	float s = sin(rad);
-	float i2 = i * c - q * s;
-	float q2 = i * s + q * c;
-	/* YIQ -> RGB inverse, one output channel per row */
-	float r = y + 0.956 * i2 + 0.621 * q2;
-	float g = y - 0.272 * i2 - 0.647 * q2;
-	float b = y - 1.106 * i2 + 1.703 * q2;
-	return saturate(float3(r, g, b));
-}
+/* ---- Stage 1/3 helpers: transfer functions of the working space -------- */
 
-/* IEC 61966-2-1 (sRGB) piecewise transfer functions */
 float3 srgb_to_linear(float3 c)
 {
 	c = saturate(c);
@@ -61,17 +45,48 @@ float3 linear_to_srgb(float3 c)
 	return lerp(lo, hi, step(0.0031308, c));
 }
 
+float3 bt709_to_linear(float3 c)
+{
+	c = saturate(c);
+	float3 lo = c / 4.5;
+	float3 hi = pow((c + 0.099) / 1.099, 1.0 / 0.45);
+	return lerp(lo, hi, step(0.081, c));
+}
+
+float3 linear_to_bt709(float3 c)
+{
+	float3 lo = c * 4.5;
+	float3 hi = 1.099 * pow(c, 0.45) - 0.099;
+	return lerp(lo, hi, step(0.018, c));
+}
+
+float3 decode_to_linear(float3 c)
+{
+	return ws_mode < 0.5 ? srgb_to_linear(c) : bt709_to_linear(c);
+}
+
+float3 encode_from_linear(float3 c)
+{
+	return ws_mode < 0.5 ? linear_to_srgb(c) : linear_to_bt709(c);
+}
+
+/* ---- Combined pixel shader: the three PRD stages in one pass ----------- */
+
 float4 mainpixel(VertData v) : SV_Target
 {
 	float4 c = image.Sample(linear_sampler, v.uv);
 	if (split_pos > 0.0 && v.uv.x < split_pos)
 		return c;
-	if (linear_mode != 0.0)
-		c.rgb = saturate(linear_to_srgb(srgb_to_linear(c.rgb) * gains));
-	else
-		c.rgb = saturate(c.rgb * gains);
-	c.rgb = hue_rotate(c.rgb, hue_bias);
-	c.rgb = saturate(c.rgb + lum_bias);
+
+	/* Stage 1: the OBS GPU path already delivered full-range RGB (FR-07);
+	 * linearize with the detected working space's inverse EOTF (FR-09). */
+	float3 lin = decode_to_linear(c.rgb);
+
+	/* Stage 2: full chromatic-adaptation transform (FR-14..FR-18). */
+	float3 corrected = float3(dot(cat_row0, lin), dot(cat_row1, lin), dot(cat_row2, lin));
+
+	/* Stage 3: forward EOTF back to the source encoding (FR-17). */
+	c.rgb = saturate(encode_from_linear(corrected));
 	return c;
 }
 
