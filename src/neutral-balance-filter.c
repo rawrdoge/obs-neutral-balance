@@ -118,6 +118,18 @@ void nb_rgb2xyz(const double rgb[3], double xyz[3])
 	nb_mat3_apply(NB_RGB2XYZ, rgb, xyz);
 }
 
+/* Lab/LCh transfer function and its inverse (CIE 1976). */
+static double nb_lab_f(double t)
+{
+	return t > 0.008856 ? cbrt(t) : (903.3 * t + 16.0) / 116.0;
+}
+
+static double nb_lab_f_inv(double t)
+{
+	const double t3 = t * t * t;
+	return t3 > 0.008856 ? t3 : (116.0 * t - 16.0) / 903.3;
+}
+
 /* CIE LCh (L 0-100, C 0-100+, h degrees) -> XYZ. xyz_norm is normalized to
  * Y = 1 (the adaptation white); *y_unnorm receives the unnormalized Y (== L). */
 void nb_white_from_lch(double L, double C, double h_deg, double xyz_norm[3], double *y_unnorm)
@@ -129,16 +141,10 @@ void nb_white_from_lch(double L, double C, double h_deg, double xyz_norm[3], dou
 	const double fx = fy + a / 500.0;
 	const double fz = fy - b / 200.0;
 
-	double f_inv(double t)
-	{
-		const double t3 = t * t * t;
-		return t3 > 0.008856 ? t3 : (116.0 * t - 16.0) / 903.3;
-	}
-
 	double xyz[3];
-	xyz[0] = NB_D65[0] * f_inv(fx);
-	xyz[1] = NB_D65[1] * f_inv(fy);
-	xyz[2] = NB_D65[2] * f_inv(fz);
+	xyz[0] = NB_D65[0] * nb_lab_f_inv(fx);
+	xyz[1] = NB_D65[1] * nb_lab_f_inv(fy);
+	xyz[2] = NB_D65[2] * nb_lab_f_inv(fz);
 
 	const double y = xyz[1];
 	*y_unnorm = y;
@@ -204,14 +210,9 @@ void nb_linrgb_to_lab(const double rgb_lin[3], double lab[3])
 	double xyz[3];
 	nb_rgb2xyz(rgb_lin, xyz);
 
-	double f(double t)
-	{
-		return t > 0.008856 ? cbrt(t) : (903.3 * t + 16.0) / 116.0;
-	}
-
-	const double fx = f(xyz[0] / NB_D65[0]);
-	const double fy = f(xyz[1] / NB_D65[1]);
-	const double fz = f(xyz[2] / NB_D65[2]);
+	const double fx = nb_lab_f(xyz[0] / NB_D65[0]);
+	const double fy = nb_lab_f(xyz[1] / NB_D65[1]);
+	const double fz = nb_lab_f(xyz[2] / NB_D65[2]);
 	lab[0] = 116.0 * fy - 16.0;
 	lab[1] = 500.0 * (fx - fy);
 	lab[2] = 200.0 * (fy - fz);
@@ -326,22 +327,6 @@ static void nb_set_working_space(struct neutral_balance *f, enum gs_color_space 
 static const char *nb_ws_name(const struct neutral_balance *f)
 {
 	return f->ws == NB_WS_BT709 ? "linear BT.709" : "linear sRGB";
-}
-
-static const char *nb_space_name(enum gs_color_space cs)
-{
-	switch (cs) {
-	case GS_CS_SRGB:
-		return "GS_CS_SRGB";
-	case GS_CS_SRGB_16F:
-		return "GS_CS_SRGB_16F";
-	case GS_CS_709_EXTENDED:
-		return "GS_CS_709_EXTENDED";
-	case GS_CS_709_SCRGB:
-		return "GS_CS_709_SCRGB";
-	default:
-		return "GS_CS_UNKNOWN";
-	}
 }
 
 /* ------------------------------------------------------------------------- */
@@ -624,8 +609,10 @@ static void nb_run_match(struct neutral_balance *f)
 		nb_rebuild_cat(f);
 
 	const double m[3] = {f->measured_lin[0], f->measured_lin[1], f->measured_lin[2]};
-	double corrected[3];
-	nb_mat3_apply((const double *)f->cat_matrix, m, corrected);
+	double mat[9], corrected[3];
+	for (int i = 0; i < 9; i++)
+		mat[i] = f->cat_matrix[i];
+	nb_mat3_apply(mat, m, corrected);
 
 	double lab_sample[3], lab_target[3];
 	nb_linrgb_to_lab(corrected, lab_sample);
@@ -650,8 +637,10 @@ static void nb_sample_info(const float rgb[3], char *out, size_t cap, void *user
 
 	if (f->cat_dirty)
 		nb_rebuild_cat(f);
-	double adapted[3];
-	nb_mat3_apply((const double *)f->cat_matrix, lin, adapted);
+	double mat[9], adapted[3];
+	for (int i = 0; i < 9; i++)
+		mat[i] = f->cat_matrix[i];
+	nb_mat3_apply(mat, lin, adapted);
 
 	snprintf(out, cap,
 		 "\nLinear RGB: %.4f, %.4f, %.4f\n"
@@ -841,7 +830,8 @@ static void nb_video_render(void *data, gs_effect_t *effect)
 
 	if (!want_input) {
 		/* Zero-copy path; declare the active color space for the pass. */
-		if (!obs_source_process_filter_begin_with_color_space(f->context, GS_RGBA, cs))
+		if (!obs_source_process_filter_begin_with_color_space(f->context, GS_RGBA, cs,
+								      OBS_ALLOW_DIRECT_RENDERING))
 			return;
 
 		nb_set_effect_params(f);
