@@ -26,7 +26,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=<obs-prefix>
 cmake --build build
 ```
 
-CI builds Windows, macOS (arm64), and Ubuntu packages on tag push (`v*`) and on push to main/master; see `.github/workflows/build.yaml`. For prebuilt zips and install locations see [INSTALL.md](INSTALL.md).
+CI builds Windows and Ubuntu packages on tag push (`v*`) and on push to main/master; see `.github/workflows/build.yaml`. For prebuilt zips and install locations see [INSTALL.md](INSTALL.md).
 
 ## Install
 
