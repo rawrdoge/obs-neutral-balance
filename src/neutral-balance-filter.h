@@ -24,11 +24,19 @@
  *   [stage 3] forward EOTF back to the source encoding
  *
  * The measured illuminant comes from Grey World / Shades of Grey statistics
- * (linear light, FR-09..FR-13) or the eyedropper (FR-25: sampled in the
- * native encoding, linearized before solving). Statistics and the eyedropper
- * run on an RGBA8 read-back; 8-bit samples are linearized through a 256-entry
- * LUT. The CPU-side colorimetry (LCh -> XYZ, CAT, DeltaE00) runs in double
- * precision (NFR-04).
+ * (linear light, FR-09..FR-13; stats.c) or the eyedropper (FR-25: sampled in
+ * the native encoding, linearized before solving; capture.c). Statistics and
+ * the eyedropper run on an RGBA8 read-back; 8-bit samples are linearized
+ * through a 256-entry LUT. The CPU-side colorimetry (LCh -> XYZ, CAT,
+ * DeltaE00) runs in double precision (NFR-04) in colorimetry.c.
+ *
+ * Module layout (SRP split):
+ *   matrix.c                   - 3x3 matrix helpers (pure)
+ *   colorimetry.c              - colorimetry + transfer functions (pure, no libobs)
+ *   stats.c                    - automatic illuminant estimation from the read-back
+ *   capture.c                  - eyedropper frame read-back request/response protocol
+ *   neutral-balance-filter.c   - OBS filter lifecycle, rendering, correction
+ *                                model, properties UI
  */
 
 #pragma once
@@ -40,23 +48,12 @@
 #include <util/platform.h>
 #include <util/threading.h>
 
+#include "colorimetry.h"
+
 enum nb_method {
 	NB_METHOD_GREY_WORLD = 0,
 	NB_METHOD_SHADES_OF_GREY = 1,
 	NB_METHOD_MANUAL = 2,
-};
-
-enum nb_cat_method {
-	NB_CAT_BRADFORD = 0,
-	NB_CAT_CAT02 = 1,
-	NB_CAT_CAT16 = 2,
-	NB_CAT_VON_KRIES = 3, /* HPE cone space */
-	NB_CAT_DIAGONAL = 4,  /* identity cone matrix (legacy comparison, FR-18) */
-};
-
-enum nb_working_space {
-	NB_WS_SRGB = 0,
-	NB_WS_BT709 = 1,
 };
 
 #define NB_STATS_W 160
@@ -78,12 +75,12 @@ struct neutral_balance {
 	gs_texrender_t *input_render;
 	bool logged_begin_fail;
 
-	/* statistics pipeline - render thread only */
+	/* statistics pipeline - render thread only (stats.c) */
 	gs_texrender_t *stats_render;
 	gs_stagesurf_t *stats_surface;
 	uint64_t last_stats_ts;
 
-	/* eyedropper capture - render thread only */
+	/* eyedropper capture - render thread only (capture.c) */
 	gs_stagesurf_t *capture_surface;
 	uint32_t capture_w, capture_h;
 	uint8_t *capture_buf;
@@ -122,9 +119,15 @@ struct neutral_balance {
 
 extern struct obs_source_info neutral_balance_filter_info;
 
-/* CPU-side colorimetry (double precision) exposed for tests/diagnostics. */
-void nb_rgb2xyz(const double rgb[3], double xyz[3]);
-void nb_white_from_lch(double L, double C, double h_deg, double xyz_norm[3], double *y_unnorm);
-void nb_cat_matrix(int cat_method, const double src_white_norm[3], const double dst_white_norm[3], double out[9]);
-double nb_delta_e_2000(const double lab1[3], const double lab2[3]);
-void nb_linrgb_to_lab(const double rgb_lin[3], double lab[3]);
+/*
+ * Shared model / format helpers (neutral-balance-filter.c), used by stats.c
+ * and capture-adjacent UI code.
+ */
+void nb_rebuild_cat(struct neutral_balance *f);
+void nb_set_measurement(struct neutral_balance *f, const double lin_rgb[3], bool smooth);
+/* FR-25/FR-26: measured color is stored encoded; linearize before solving. */
+void nb_measurement_from_sample(struct neutral_balance *f);
+
+/* Working-space detection (neutral-balance-filter.c). */
+void nb_set_working_space(struct neutral_balance *f, enum gs_color_space cs);
+const char *nb_ws_name(const struct neutral_balance *f);

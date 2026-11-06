@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.16...3.30)
 # Derived from the official obs-plugintemplate (https://github.com/obsproject/obs-plugintemplate)
 # Build against an installed OBS Studio (obs-studio dev package) or an OBS build tree.
 
-project(obs-neutral-balance VERSION 2.0.0 LANGUAGES C CXX)
+project(obs-neutral-balance VERSION 2.0.1 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 # Dependencies
@@ -16,6 +16,10 @@ add_library(OBS::neutral-balance ALIAS obs-neutral-balance)
 
 target_sources(obs-neutral-balance PRIVATE
 	src/plugin-main.c
+	src/matrix.c
+	src/colorimetry.c
+	src/stats.c
+	src/capture.c
 	src/neutral-balance-filter.c
 	src/eyedropper.cpp
 )
