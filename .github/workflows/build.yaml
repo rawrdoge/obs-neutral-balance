@@ -66,14 +66,14 @@ jobs:
             # Headers: prefer the install prefix, fall back to the source tree
             $hdr = Get-ChildItem -Path $prefix -Recurse -Filter obs-module.h -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($hdr) { $incDir = $hdr.DirectoryName } else { $incDir = "$srcRoot/libobs" }
-            $incList = $incDir.Replace('\\', '/')
+            $incList = $incDir.Replace('\', '/')
             $buildInc = "$srcRoot/build/libobs"
-            if (Test-Path $buildInc) { $incList = "$incList;$($buildInc.Replace('\\', '/'))" }
+            if (Test-Path $buildInc) { $incList = "$incList;$($buildInc.Replace('\', '/'))" }
             $genHdr = Get-ChildItem -Path "$srcRoot/build", "$srcRoot/build_x64" -Recurse -Filter obsconfig.h -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch 'x86' } | Select-Object -First 1
-            if ($genHdr) { $incList = "$incList;$($genHdr.DirectoryName.Replace('\\', '/'))" }
+            if ($genHdr) { $incList = "$incList;$($genHdr.DirectoryName.Replace('\', '/'))" }
             # util/threading.h includes <pthread.h> on Windows (w32-pthreads from obs-deps)
             $ptHdr = Get-ChildItem -Path "${{ github.workspace }}/deps", "$srcRoot/.deps", "$srcRoot/deps" -Recurse -Filter pthread.h -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($ptHdr) { $incList = "$incList;$($ptHdr.DirectoryName.Replace('\\', '/'))" }
+            if ($ptHdr) { $incList = "$incList;$($ptHdr.DirectoryName.Replace('\', '/'))" }
             # Import library: prefer the install prefix, fall back to the build tree
             $implibPath = $null
             $implib = Get-ChildItem -Path $prefix -Recurse -Filter obs.lib -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -96,7 +96,7 @@ jobs:
             New-Item -ItemType Directory -Force $dir | Out-Null
             $cfgPath = Join-Path $dir 'libobsConfig.cmake'
             $c = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('IyBTeW50aGVzaXplZCBtaW5pbWFsIGxpYm9icyBwYWNrYWdlIGNvbmZpZyAocGF0aHMgZGlzY292ZXJlZCBieSBDSSkKaWYoTk9UIFRBUkdFVCBPQlM6OmxpYm9icykKICBhZGRfbGlicmFyeShPQlM6OmxpYm9icyBTSEFSRUQgSU1QT1JURUQpCiAgaWYoV0lOMzIpCiAgICBzZXRfdGFyZ2V0X3Byb3BlcnRpZXMoT0JTOjpsaWJvYnMgUFJPUEVSVElFUwogICAgICBJTVBPUlRFRF9JTVBMSUIgIl9fTkJfSU1QTElCX18iCiAgICAgIElOVEVSRkFDRV9JTkNMVURFX0RJUkVDVE9SSUVTICJfX05CX0lOQ0xVREVfRElSX18iKQogIGVsc2UoKQogICAgc2V0X3RhcmdldF9wcm9wZXJ0aWVzKE9CUzo6bGlib2JzIFBST1BFUlRJRVMKICAgICAgSU1QT1JURURfTE9DQVRJT04gIl9fTkJfTElCUEFUSF9fIgogICAgICBJTlRFUkZBQ0VfSU5DTFVERV9ESVJFQ1RPUklFUyAiX19OQl9JTkNMVURFX0RJUl9fIikKICBlbmRpZigpCmVuZGlmKCkKc2V0KGxpYm9ic19GT1VORCBUUlVFKQ=='))
-            $c = $c.Replace('__NB_INCLUDE_DIR__', $incList).Replace('__NB_IMPLIB__', $implibPath.Replace('\\', '/')).Replace('__NB_LIBPATH__', $implibPath.Replace('\\', '/'))
+            $c = $c.Replace('__NB_INCLUDE_DIR__', $incList).Replace('__NB_IMPLIB__', $implibPath.Replace('\', '/')).Replace('__NB_LIBPATH__', $implibPath.Replace('\', '/'))
             [IO.File]::WriteAllText($cfgPath, $c)
             Write-Host "Synthesized libobs config at $cfgPath (includes: $incList, implib: $implibPath)"
           }
