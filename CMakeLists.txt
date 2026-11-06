@@ -28,9 +28,8 @@ if(BUILD_TESTING)
         target_compile_definitions(test_colorimetry PRIVATE _USE_MATH_DEFINES)
     else()
         target_compile_definitions(test_colorimetry PRIVATE _GNU_SOURCE)
+        target_link_libraries(test_colorimetry PRIVATE m)
     endif()
-    
-    target_link_libraries(test_colorimetry PRIVATE m)
     
     # Add test to CTest
     add_test(NAME colorimetry_tests COMMAND test_colorimetry)
