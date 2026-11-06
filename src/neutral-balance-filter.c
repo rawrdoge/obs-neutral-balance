@@ -46,256 +46,19 @@
 #include <util/bmem.h>
 
 #include "neutral-balance-filter.h"
+#include "colorimetry.h"
+#include "matrix.h"
+#include "stats.h"
+#include "capture.h"
 #include "eyedropper.h"
 
 #define EPS 1e-6
 
 /* ------------------------------------------------------------------------- */
-/* 3x3 matrix helpers (row-major, double precision)                          */
-/* ------------------------------------------------------------------------- */
-
-static void nb_mat3_mul(const double a[9], const double b[9], double out[9])
-{
-	for (int i = 0; i < 3; i++)
-		for (int j = 0; j < 3; j++)
-			out[i * 3 + j] = a[i * 3] * b[j] + a[i * 3 + 1] * b[3 + j] + a[i * 3 + 2] * b[6 + j];
-}
-
-static bool nb_mat3_inv(const double m[9], double out[9])
-{
-	const double a = m[0], b = m[1], c = m[2];
-	const double d = m[3], e = m[4], f = m[5];
-	const double g = m[6], h = m[7], i = m[8];
-	const double A = e * i - f * h;
-	const double B = -(d * i - f * g);
-	const double C = d * h - e * g;
-	const double det = a * A + b * B + c * C;
-	if (fabs(det) < 1e-12)
-		return false;
-	const double id = 1.0 / det;
-	out[0] = A * id;
-	out[1] = -(b * i - c * h) * id;
-	out[2] = (b * f - c * e) * id;
-	out[3] = B * id;
-	out[4] = (a * i - c * g) * id;
-	out[5] = -(a * f - c * d) * id;
-	out[6] = C * id;
-	out[7] = -(a * h - b * g) * id;
-	out[8] = (a * e - b * d) * id;
-	return true;
-}
-
-static void nb_mat3_apply(const double m[9], const double v[3], double out[3])
-{
-	for (int r = 0; r < 3; r++)
-		out[r] = m[r * 3] * v[0] + m[r * 3 + 1] * v[1] + m[r * 3 + 2] * v[2];
-}
-
-/* ------------------------------------------------------------------------- */
-/* Colorimetry (double precision on the CPU, per NFR-04)                     */
-/* ------------------------------------------------------------------------- */
-
-/* sRGB / BT.709 primaries, D65 white (both working spaces share these). */
-static const double NB_RGB2XYZ[9] = {0.4124564, 0.3575761, 0.1804375, 0.2126729, 0.7151522,
-				     0.0721750, 0.0193339, 0.1191920, 0.9503041};
-
-static double NB_XYZ2RGB[9];
-
-static const double NB_D65[3] = {0.95047, 1.0, 1.08883};
-
-/* Cone-response matrices for the CAT methods (FR-15). */
-static const double NB_BRADFORD[9] = {0.8951, 0.2664, -0.1614, -0.7502, 1.7135, 0.0367,
-				      0.0389, -0.0685, 1.0296};
-static const double NB_CAT02[9] = {0.7328, 0.4296, -0.1624, -0.7036, 1.6975, 0.0061,
-				   0.0030, 0.0136, 0.9834};
-static const double NB_CAT16[9] = {0.401288, 0.650173, -0.051461, -0.250268, 1.204414, 0.045854,
-				   -0.002079, 0.048952, 0.953127};
-static const double NB_HPE[9] = {0.40024, 0.70760, -0.08081, -0.22630, 1.16532, 0.04570,
-				 0.0, 0.0, 0.91822};
-
-void nb_rgb2xyz(const double rgb[3], double xyz[3])
-{
-	nb_mat3_apply(NB_RGB2XYZ, rgb, xyz);
-}
-
-/* Lab/LCh transfer function and its inverse (CIE 1976). */
-static double nb_lab_f(double t)
-{
-	return t > 0.008856 ? cbrt(t) : (903.3 * t + 16.0) / 116.0;
-}
-
-static double nb_lab_f_inv(double t)
-{
-	const double t3 = t * t * t;
-	return t3 > 0.008856 ? t3 : (116.0 * t - 16.0) / 903.3;
-}
-
-/* CIE LCh (L 0-100, C 0-100+, h degrees) -> XYZ. xyz_norm is normalized to
- * Y = 1 (the adaptation white); *y_unnorm receives the unnormalized Y (== L). */
-void nb_white_from_lch(double L, double C, double h_deg, double xyz_norm[3], double *y_unnorm)
-{
-	const double h = h_deg * M_PI / 180.0;
-	const double a = C * cos(h);
-	const double b = C * sin(h);
-	const double fy = (L + 16.0) / 116.0;
-	const double fx = fy + a / 500.0;
-	const double fz = fy - b / 200.0;
-
-	double xyz[3];
-	xyz[0] = NB_D65[0] * nb_lab_f_inv(fx);
-	xyz[1] = NB_D65[1] * nb_lab_f_inv(fy);
-	xyz[2] = NB_D65[2] * nb_lab_f_inv(fz);
-
-	const double y = xyz[1];
-	*y_unnorm = y;
-	if (y > EPS) {
-		xyz_norm[0] = xyz[0] / y;
-		xyz_norm[1] = 1.0;
-		xyz_norm[2] = xyz[2] / y;
-	} else {
-		xyz_norm[0] = NB_D65[0];
-		xyz_norm[1] = 1.0;
-		xyz_norm[2] = NB_D65[2];
-	}
-}
-
-/* Full chromatic-adaptation matrix in XYZ: maps src_white -> dst_white
- * (both Y-normalized). Diagonal mode uses the identity cone matrix (FR-18). */
-void nb_cat_matrix(int cat_method, const double src_white_norm[3], const double dst_white_norm[3],
-		   double out[9])
-{
-	const double *cone = NB_BRADFORD;
-	switch (cat_method) {
-	case NB_CAT_CAT02:
-		cone = NB_CAT02;
-		break;
-	case NB_CAT_CAT16:
-		cone = NB_CAT16;
-		break;
-	case NB_CAT_VON_KRIES:
-		cone = NB_HPE;
-		break;
-	case NB_CAT_DIAGONAL: {
-		for (int i = 0; i < 3; i++)
-			for (int j = 0; j < 3; j++)
-				out[i * 3 + j] = (i == j) ? dst_white_norm[i] / fmax(src_white_norm[i], EPS) : 0.0;
-		return;
-	}
-	default:
-		break;
-	}
-
-	double cone_inv[9];
-	if (!nb_mat3_inv(cone, cone_inv)) {
-		for (int i = 0; i < 9; i++)
-			out[i] = (i % 4 == 0) ? 1.0 : 0.0;
-		return;
-	}
-
-	double src_cone[3], dst_cone[3];
-	nb_mat3_apply(cone, src_white_norm, src_cone);
-	nb_mat3_apply(cone, dst_white_norm, dst_cone);
-
-	double d[9] = {0};
-	for (int i = 0; i < 3; i++)
-		d[i * 3 + i] = dst_cone[i] / fmax(src_cone[i], EPS);
-
-	double tmp[9];
-	nb_mat3_mul(d, cone, tmp);
-	nb_mat3_mul(cone_inv, tmp, out);
-}
-
-void nb_linrgb_to_lab(const double rgb_lin[3], double lab[3])
-{
-	double xyz[3];
-	nb_rgb2xyz(rgb_lin, xyz);
-
-	const double fx = nb_lab_f(xyz[0] / NB_D65[0]);
-	const double fy = nb_lab_f(xyz[1] / NB_D65[1]);
-	const double fz = nb_lab_f(xyz[2] / NB_D65[2]);
-	lab[0] = 116.0 * fy - 16.0;
-	lab[1] = 500.0 * (fx - fy);
-	lab[2] = 200.0 * (fy - fz);
-}
-
-/* CIEDE2000 (Sharma, Wu & Dalal 2005). */
-double nb_delta_e_2000(const double lab1[3], const double lab2[3])
-{
-	const double L1 = lab1[0], a1 = lab1[1], b1 = lab1[2];
-	const double L2 = lab2[0], a2 = lab2[1], b2 = lab2[2];
-	const double C1 = sqrt(a1 * a1 + b1 * b1);
-	const double C2 = sqrt(a2 * a2 + b2 * b2);
-	const double Cb7 = pow((C1 + C2) / 2.0, 7.0);
-	const double G = 0.5 * (1.0 - sqrt(Cb7 / (Cb7 + pow(25.0, 7.0))));
-	const double a1p = (1.0 + G) * a1, a2p = (1.0 + G) * a2;
-	const double C1p = sqrt(a1p * a1p + b1 * b1);
-	const double C2p = sqrt(a2p * a2p + b2 * b2);
-	double h1p = atan2(b1, a1p) * 180.0 / M_PI;
-	double h2p = atan2(b2, a2p) * 180.0 / M_PI;
-	if (h1p < 0)
-		h1p += 360.0;
-	if (h2p < 0)
-		h2p += 360.0;
-
-	const double dLp = L2 - L1;
-	const double dCp = C2p - C1p;
-	double dhp = 0.0;
-	if (C1p * C2p > 0.0) {
-		dhp = h2p - h1p;
-		if (dhp > 180.0)
-			dhp -= 360.0;
-		else if (dhp < -180.0)
-			dhp += 360.0;
-	}
-	const double dHp = 2.0 * sqrt(C1p * C2p) * sin(dhp * M_PI / 360.0);
-
-	const double Lbp = (L1 + L2) / 2.0;
-	const double Cbp = (C1p + C2p) / 2.0;
-	double hbp = h1p + h2p;
-	if (C1p * C2p > 0.0) {
-		const double d = fabs(h1p - h2p);
-		if (d <= 180.0)
-			hbp = (h1p + h2p) / 2.0;
-		else if (h1p + h2p < 360.0)
-			hbp = (h1p + h2p + 360.0) / 2.0;
-		else
-			hbp = (h1p + h2p - 360.0) / 2.0;
-	}
-
-	const double T = 1.0 - 0.17 * cos((hbp - 30.0) * M_PI / 180.0) +
-			 0.24 * cos(2.0 * hbp * M_PI / 180.0) + 0.32 * cos((3.0 * hbp + 6.0) * M_PI / 180.0) -
-			 0.20 * cos((4.0 * hbp - 63.0) * M_PI / 180.0);
-	const double dtheta = 30.0 * exp(-pow((hbp - 275.0) / 25.0, 2.0));
-	const double Cbp7 = pow(Cbp, 7.0);
-	const double Rc = 2.0 * sqrt(Cbp7 / (Cbp7 + pow(25.0, 7.0)));
-	const double Sl = 1.0 + (0.015 * pow(Lbp - 50.0, 2.0)) / sqrt(20.0 + pow(Lbp - 50.0, 2.0));
-	const double Sc = 1.0 + 0.045 * Cbp;
-	const double Sh = 1.0 + 0.015 * Cbp * T;
-	const double Rt = -sin(2.0 * dtheta * M_PI / 180.0) * Rc;
-
-	const double dL = dLp / Sl, dC = dCp / Sc, dH = dHp / Sh;
-	return sqrt(dL * dL + dC * dC + dH * dH + Rt * dC * dH);
-}
-
-/* ------------------------------------------------------------------------- */
 /* Working-space transfer functions (CPU side, for LUT + diagnostics)        */
 /* ------------------------------------------------------------------------- */
 
-static double nb_decode_linear(const struct neutral_balance *f, double v)
-{
-	v = v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
-	if (f->ws == NB_WS_BT709)
-		return v <= 0.081 ? v / 4.5 : pow((v + 0.099) / 1.099, 1.0 / 0.45);
-	return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4);
-}
-
-static void nb_build_lut(struct neutral_balance *f)
-{
-	for (int i = 0; i < 256; i++)
-		f->inv_lut[i] = (float)nb_decode_linear(f, i / 255.0);
-}
-
-static void nb_set_working_space(struct neutral_balance *f, enum gs_color_space cs)
+void nb_set_working_space(struct neutral_balance *f, enum gs_color_space cs)
 {
 	enum nb_working_space ws;
 	switch (cs) {
@@ -318,13 +81,13 @@ static void nb_set_working_space(struct neutral_balance *f, enum gs_color_space 
 	}
 	if (ws != f->ws) {
 		f->ws = ws;
-		nb_build_lut(f);
+		nb_build_lut(f->ws, f->inv_lut);
 		f->cat_dirty = true;
 	}
 	f->source_space = cs;
 }
 
-static const char *nb_ws_name(const struct neutral_balance *f)
+const char *nb_ws_name(const struct neutral_balance *f)
 {
 	return f->ws == NB_WS_BT709 ? "linear BT.709" : "linear sRGB";
 }
@@ -334,7 +97,7 @@ static const char *nb_ws_name(const struct neutral_balance *f)
 /* ------------------------------------------------------------------------- */
 
 /* Rebuild cat_matrix from the measured illuminant and the target LCh. */
-static void nb_rebuild_cat(struct neutral_balance *f)
+void nb_rebuild_cat(struct neutral_balance *f)
 {
 	if (!f->has_measurement) {
 		for (int i = 0; i < 9; i++)
@@ -354,9 +117,13 @@ static void nb_rebuild_cat(struct neutral_balance *f)
 	double adapt[9];
 	nb_cat_matrix(f->cat_method, src_white, dst_white, adapt);
 
+	double xyz2rgb[9];
+	if (!nb_xyz2rgb_matrix(xyz2rgb))
+		return;
+
 	double rgb2xyz_then_adapt[9], full[9];
-	nb_mat3_mul(adapt, NB_RGB2XYZ, rgb2xyz_then_adapt);
-	nb_mat3_mul(NB_XYZ2RGB, rgb2xyz_then_adapt, full);
+	nb_mat3_mul(adapt, nb_rgb2xyz_matrix(), rgb2xyz_then_adapt);
+	nb_mat3_mul(xyz2rgb, rgb2xyz_then_adapt, full);
 
 	/* Exposure term: the measured color's Y maps onto the target L (FR-20). */
 	const double exposure = y_tgt / y_meas;
@@ -367,7 +134,7 @@ static void nb_rebuild_cat(struct neutral_balance *f)
 	f->has_match = false;
 }
 
-static void nb_set_measurement(struct neutral_balance *f, const double lin_rgb[3], bool smooth)
+void nb_set_measurement(struct neutral_balance *f, const double lin_rgb[3], bool smooth)
 {
 	if (smooth && f->has_measurement) {
 		for (int i = 0; i < 3; i++)
@@ -381,11 +148,11 @@ static void nb_set_measurement(struct neutral_balance *f, const double lin_rgb[3
 }
 
 /* FR-25/FR-26: measured color is stored encoded; linearize before solving. */
-static void nb_measurement_from_sample(struct neutral_balance *f)
+void nb_measurement_from_sample(struct neutral_balance *f)
 {
 	double lin[3];
 	for (int i = 0; i < 3; i++)
-		lin[i] = nb_decode_linear(f, f->last_sample[i]);
+		lin[i] = nb_decode_linear(f->ws, f->last_sample[i]);
 	nb_set_measurement(f, lin, false);
 }
 
@@ -441,163 +208,6 @@ static void nb_set_effect_params(struct neutral_balance *f)
 }
 
 /* ------------------------------------------------------------------------- */
-/* Automatic estimation (Grey World / Shades of Grey, linear light)          */
-/* ------------------------------------------------------------------------- */
-
-static void nb_update_stats(struct neutral_balance *f, gs_texture_t *input)
-{
-	uint64_t now = os_gettime_ns();
-	if (now - f->last_stats_ts < NB_STATS_INTERVAL_NS)
-		return;
-	f->last_stats_ts = now;
-
-	if (!f->stats_render || !f->stats_surface) {
-		if (f->stats_render)
-			gs_texrender_destroy(f->stats_render);
-		if (f->stats_surface)
-			gs_stagesurface_destroy(f->stats_surface);
-		f->stats_render = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
-		f->stats_surface = gs_stagesurface_create(NB_STATS_W, NB_STATS_H, GS_RGBA);
-		if (!f->stats_render || !f->stats_surface) {
-			blog(LOG_WARNING, "[neutral-balance] failed to create stats pipeline");
-			return;
-		}
-	}
-
-	gs_texrender_reset(f->stats_render);
-	if (!gs_texrender_begin(f->stats_render, NB_STATS_W, NB_STATS_H))
-		return;
-
-	gs_effect_t *def = obs_get_base_effect(OBS_EFFECT_DEFAULT);
-	gs_effect_set_texture(gs_effect_get_param_by_name(def, "image"), input);
-	while (gs_effect_loop(def, "Draw"))
-		gs_draw_sprite(input, 0, NB_STATS_W, NB_STATS_H);
-	gs_texrender_end(f->stats_render);
-
-	gs_texture_t *small = gs_texrender_get_texture(f->stats_render);
-	if (!small)
-		return;
-
-	gs_stage_texture(f->stats_surface, small);
-
-	uint8_t *data = NULL;
-	uint32_t linesize = 0;
-	if (!gs_stagesurface_map(f->stats_surface, &data, &linesize)) {
-		blog(LOG_WARNING, "[neutral-balance] stats surface map failed");
-		return;
-	}
-
-	/* Grey World (Buchsbaum 1980) / Shades of Grey (Finlayson & Trezzi 2004)
-	 * in LINEAR light (FR-09..FR-12): decode each 8-bit sample through the
-	 * inverse EOTF LUT of the detected working space before accumulating. */
-	const int n = NB_STATS_W * NB_STATS_H;
-	double sum[3] = {0.0, 0.0, 0.0};
-	for (uint32_t y = 0; y < NB_STATS_H; y++) {
-		const uint8_t *row = data + (size_t)y * linesize;
-		for (uint32_t x = 0; x < NB_STATS_W; x++) {
-			const uint8_t *px = row + (size_t)x * 4;
-			const float lr = f->inv_lut[px[0]];
-			const float lg = f->inv_lut[px[1]];
-			const float lb = f->inv_lut[px[2]];
-			if (f->method == NB_METHOD_SHADES_OF_GREY) {
-				sum[0] += pow(lr, f->shades_p);
-				sum[1] += pow(lg, f->shades_p);
-				sum[2] += pow(lb, f->shades_p);
-			} else {
-				sum[0] += lr;
-				sum[1] += lg;
-				sum[2] += lb;
-			}
-		}
-	}
-	gs_stagesurface_unmap(f->stats_surface);
-
-	/* The per-channel estimate IS the illuminant color (FR-16): adapt it to
-	 * the target with the CAT instead of equalizing means with raw gains. */
-	double e[3];
-	if (f->method == NB_METHOD_SHADES_OF_GREY) {
-		float inv = 1.0f / fmaxf(f->shades_p, EPS);
-		e[0] = pow((float)(sum[0] / n), inv);
-		e[1] = pow((float)(sum[1] / n), inv);
-		e[2] = pow((float)(sum[2] / n), inv);
-	} else {
-		e[0] = (float)(sum[0] / n);
-		e[1] = (float)(sum[1] / n);
-		e[2] = (float)(sum[2] / n);
-	}
-
-	nb_set_measurement(f, e, true);
-}
-
-/* ------------------------------------------------------------------------- */
-/* Eyedropper capture (render thread)                                        */
-/* ------------------------------------------------------------------------- */
-
-static void nb_do_capture(struct neutral_balance *f, gs_texture_t *input, uint32_t w, uint32_t h)
-{
-	if (f->capture_surface && (f->capture_w != w || f->capture_h != h)) {
-		gs_stagesurface_destroy(f->capture_surface);
-		f->capture_surface = NULL;
-	}
-	if (!f->capture_surface) {
-		f->capture_surface = gs_stagesurface_create(w, h, GS_RGBA);
-		f->capture_w = w;
-		f->capture_h = h;
-	}
-	if (!f->capture_surface) {
-		blog(LOG_WARNING, "[neutral-balance] capture stagesurface create failed (%ux%u)", w, h);
-		return;
-	}
-
-	/* One-shot read-back of the *uncorrected* filter input in its native
-	 * encoding (FR-25); linearization happens after the click. */
-	gs_stage_texture(f->capture_surface, input);
-
-	uint8_t *data = NULL;
-	uint32_t linesize = 0;
-	if (!gs_stagesurface_map(f->capture_surface, &data, &linesize)) {
-		blog(LOG_WARNING, "[neutral-balance] capture stagesurface map failed");
-		return;
-	}
-
-	size_t size = (size_t)w * h * 4;
-	f->capture_buf = brealloc(f->capture_buf, size);
-	for (uint32_t y = 0; y < h; y++)
-		memcpy(f->capture_buf + (size_t)y * w * 4, data + (size_t)y * linesize, (size_t)w * 4);
-
-	gs_stagesurface_unmap(f->capture_surface);
-
-	f->capture_ready = true;
-	os_event_signal(f->capture_done);
-}
-
-static bool nb_request_capture(struct neutral_balance *f, uint8_t **out_buf, uint32_t *out_w, uint32_t *out_h)
-{
-	f->capture_ready = false;
-	os_event_reset(f->capture_done);
-	f->capture_requested = true;
-
-	/* Wait up to ~2 s; if the source is hidden or removed the filter never
-	 * renders and we must not block the UI thread (NFR-02). */
-	for (int i = 0; i < 40; i++) {
-		if (f->capture_ready && f->capture_buf) {
-			size_t size = (size_t)f->capture_w * f->capture_h * 4;
-			uint8_t *copy = bmalloc(size);
-			memcpy(copy, f->capture_buf, size);
-			f->capture_ready = false;
-			*out_buf = copy;
-			*out_w = f->capture_w;
-			*out_h = f->capture_h;
-			return true;
-		}
-		os_event_timedwait(f->capture_done, 50);
-	}
-
-	f->capture_requested = false;
-	return false;
-}
-
-/* ------------------------------------------------------------------------- */
 /* Diagnostics                                                               */
 /* ------------------------------------------------------------------------- */
 
@@ -631,7 +241,7 @@ static void nb_sample_info(const float rgb[3], char *out, size_t cap, void *user
 	struct neutral_balance *f = user;
 	double lin[3], xyz[3];
 	for (int i = 0; i < 3; i++)
-		lin[i] = nb_decode_linear(f, rgb[i]);
+		lin[i] = nb_decode_linear(f->ws, rgb[i]);
 	nb_rgb2xyz(lin, xyz);
 	const double y = fmax(xyz[1], EPS);
 
@@ -682,7 +292,7 @@ static void nb_set_status_text(obs_properties_t *props, struct neutral_balance *
 		 f->has_match ? " | dE00 vs target: " : "", f->has_match ? "" : "");
 	if (f->has_match) {
 		size_t len = strlen(text);
-		snprintf(text + len - 1, sizeof(text) - len + 1, "%.3f", f->match_de);
+		snprintf(text + len, sizeof(text) - len, "%.3f", f->match_de);
 	}
 	obs_property_set_description(diag, text);
 }
@@ -708,10 +318,10 @@ static void *nb_create(obs_data_t *settings, obs_source_t *source)
 	f->target_luminance = 50.0f;
 	f->source_space = GS_CS_SRGB;
 	f->ws = NB_WS_SRGB;
-	nb_build_lut(f);
+	nb_build_lut(f->ws, f->inv_lut);
 	f->cat_dirty = true;
 
-	if (!nb_mat3_inv(NB_RGB2XYZ, NB_XYZ2RGB)) {
+	if (!nb_colorimetry_init()) {
 		blog(LOG_ERROR, "[neutral-balance] RGB->XYZ matrix is singular");
 		bfree(f);
 		return NULL;
