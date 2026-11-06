@@ -68,6 +68,29 @@ elseif(TARGET Qt5::Widgets)
 	target_link_libraries(obs-neutral-balance PRIVATE Qt5::Widgets)
 	target_compile_definitions(obs-neutral-balance PRIVATE NB_HAVE_QT=1)
 	set_target_properties(obs-neutral-balance PROPERTIES AUTOMOC ON)
+
+# ---------------------------------------------------------------------------
+# Testing
+# ---------------------------------------------------------------------------
+option(BUILD_TESTING "Build unit tests" OFF)
+if(BUILD_TESTING)
+    enable_testing()
+    
+    # Add utest.h header
+    include_directories(tests)
+    
+    # Create test executable
+    add_executable(test_colorimetry
+        tests/test_colorimetry.c
+        src/colorimetry.c
+        src/matrix.c
+    )
+    
+    target_link_libraries(test_colorimetry PRIVATE m)
+    
+    # Add test to CTest
+    add_test(NAME colorimetry_tests COMMAND test_colorimetry)
+endif()
 else()
 	message(WARNING "Qt Widgets not found - building without the eyedropper dialog")
 endif()
