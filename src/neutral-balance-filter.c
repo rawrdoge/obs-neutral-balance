@@ -516,8 +516,6 @@ static bool props_modified(obs_properties_t *props, obs_property_t *p, obs_data_
 	obs_property_set_visible(obs_properties_get(props, "target_hue"), advanced);
 	obs_property_set_visible(obs_properties_get(props, "target_luminance"), advanced);
 	obs_property_set_visible(obs_properties_get(props, "target_chroma"), advanced);
-	 // validate_accuracy visible in both modes
-	 // reset visible in both modes
 	obs_property_set_visible(obs_properties_get(props, "diag_status"), advanced);
 
 	UNUSED_PARAMETER(p);

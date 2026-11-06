@@ -21,8 +21,6 @@
 #define EPSILON 1e-6
 #define DOUBLE_EPSILON 1e-9
 
-UTEST_ASSERT_DOUBLE_IMPL;
-
 /* ---------------------------------------------------------------------------
  * Matrix tests
  * --------------------------------------------------------------------------- */
@@ -151,16 +149,19 @@ TEST(lab_to_lch_roundtrip)
 
 TEST(lch_to_xyz_identity)
 {
-	/* Neutral gray at L=50, C=0 should yield D50-like XYZ */
+	/* Neutral gray at L=50, C=0 should yield D65 white point.
+	 * For C=0, the normalized XYZ should be D65 white point.
+	 * y_unnorm receives the Y component of XYZ (not L*).
+	 * For L=50, Y = 0.184186... (per CIE Lab formula) */
 	double xyz_norm[3];
 	double y_unnorm;
 	nb_white_from_lch(50.0, 0.0, 0.0, xyz_norm, &y_unnorm);
-	
+
 	/* For C=0, the normalized XYZ should be D65 white point */
 	UTEST_ASSERT_DOUBLE(xyz_norm[0], 0.95047, 1e-3);
 	UTEST_ASSERT_DOUBLE(xyz_norm[1], 1.0, 1e-6);
 	UTEST_ASSERT_DOUBLE(xyz_norm[2], 1.08883, 1e-3);
-	UTEST_ASSERT_DOUBLE(y_unnorm, 50.0, 1e-6);
+	UTEST_ASSERT_DOUBLE(y_unnorm, 0.184186, 1e-3);
 }
 
 /* ---------------------------------------------------------------------------

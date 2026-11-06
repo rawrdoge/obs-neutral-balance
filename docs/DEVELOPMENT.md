@@ -197,6 +197,28 @@ Located in `tests/test_colorimetry.c`. Tests cover:
 - Edge cases (black, white, pure colors)
 - CAT matrix correctness
 
+### CI Testing (GitHub Actions)
+
+The CI pipeline runs tests on every push and PR across three platforms:
+- **Windows x64** (windows-2022)
+- **macOS arm64** (macos-14)
+- **Ubuntu x86_64** (ubuntu-24.04)
+
+Tests are gated by the `BUILD_TESTING=ON` CMake option. The test build:
+- Compiles `tests/test_colorimetry.c` with `src/colorimetry.c` and `src/matrix.c`
+- **Does NOT require libobs** — only `<math.h>` and repo headers
+- Links against `m` (libm) for math functions
+- Runs via `ctest --test-dir build --output-on-failure`
+- Fails the job on any test failure
+
+On tag push (`v*`), the release job runs **after** all three build jobs complete successfully — a broken colorimetry change cannot ship.
+
+### Adding a New Test
+
+1. Add a `TEST(name)` block in `tests/test_colorimetry.c`
+2. Register it in `main()` with `utest_register(&utest_reg_<name>);`
+3. The test runs automatically in CI and locally via `ctest`
+
 ### Manual Testing Checklist
 
 - [ ] Grey World mode works
