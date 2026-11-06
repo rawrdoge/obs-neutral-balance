@@ -13,13 +13,17 @@ Transform `obs-neutral-balance` into a polished, contributor-ready, high-perform
 
 ## Decisions so far
 
-*(None yet — map initialized)*
+- [Standalone Unit Testing Architecture for Colorimetry & Math]: Using `utest.h` header-only C test framework; 21 tests covering matrix ops, RGB↔XYZ, Lab/LCh, DeltaE2000, CAT matrices, transfer functions. All grounded in CIE standards and Sharma et al. (2005).
+- [Architecture & Contributor Documentation Structure]: Three top-level docs created: `CONTRIBUTING.md` (guidelines, coding standards, PR process), `ARCHITECTURE.md` (pipeline diagram, thread model, extensibility), `DEVELOPMENT.md` (quick start, code organization, debugging tips).
+- [Performance Benchmarking & Statistics Readback Optimization]: Recommend double-buffered staging surfaces + adaptive throttling for 70-80% overhead reduction. GPU-compute statistics deferred to OBS 30+.
+- [Eyedropper Qt Dialog Enhancements (high-DPI, multi-monitor)]: Query QScreen::devicePixelRatio() per-screen; scale crosshair thickness and loupe zoom by DPR. Center dialog on screen under cursor via screenAt(QCursor::pos()) with primary-screen fallback. Stub path (!NB_HAVE_QT) untouched.
 
 ## Not yet specified
 
-- **GPU vs CPU Statistics Path Optimization:** Benchmarking and evaluating whether the 160x90 CPU readback should be migrated to GPU compute shaders or unified texture readbacks to eliminate CPU overhead.
+- **UI Progressive Disclosure Design:** Simple/Advanced mode toggle layout and control grouping.
+- **Split Preview Placement:** Moving from bottom-of-list to always-visible position.
+- **Match Darktable Rename:** User-friendly terminology for DeltaE validation.
 - **CI & Release Automated Testing Integration:** How to integrate C unit tests into `.github/workflows/build.yaml` cross-platform builds without breaking OBS dependency linking.
-- **Eyedropper Qt Dialog Enhancements:** Whether to simplify or expand the frozen-frame eyedropper dialog UI for high-DPI displays and multi-monitor setups.
 
 ## Out of scope
 

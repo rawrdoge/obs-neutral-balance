@@ -400,6 +400,7 @@ static void nb_get_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "target_chroma", 0.0);
 	obs_data_set_default_int(settings, "sample_radius", 3);
 	obs_data_set_default_bool(settings, "show_split", false);
+	obs_data_set_default_bool(settings, "advanced_mode", false);
 	obs_data_set_default_bool(settings, "has_sample", false);
 	obs_data_set_default_double(settings, "last_sample_r", 0.5);
 	obs_data_set_default_double(settings, "last_sample_g", 0.5);
@@ -500,15 +501,24 @@ static enum gs_color_space nb_video_get_color_space(void *data, size_t count,
 /* Properties UI                                                             */
 /* ------------------------------------------------------------------------- */
 
-static bool method_modified(obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
+static bool props_modified(obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
 {
 	const long method = (long)obs_data_get_int(settings, "method");
 	const bool manual = method == NB_METHOD_MANUAL;
+	const bool advanced = obs_data_get_bool(settings, "advanced_mode");
 
-	obs_property_set_visible(obs_properties_get(props, "shades_p"), method == NB_METHOD_SHADES_OF_GREY);
+	obs_property_set_visible(obs_properties_get(props, "shades_p"), method == NB_METHOD_SHADES_OF_GREY && advanced);
 	obs_property_set_visible(obs_properties_get(props, "pick_neutral"), manual);
 	obs_property_set_visible(obs_properties_get(props, "sample_radius"), manual);
 	obs_property_set_visible(obs_properties_get(props, "sample_rgb_text"), manual);
+
+	obs_property_set_visible(obs_properties_get(props, "cat_method"), advanced);
+	obs_property_set_visible(obs_properties_get(props, "target_hue"), advanced);
+	obs_property_set_visible(obs_properties_get(props, "target_luminance"), advanced);
+	obs_property_set_visible(obs_properties_get(props, "target_chroma"), advanced);
+	 // validate_accuracy visible in both modes
+	 // reset visible in both modes
+	obs_property_set_visible(obs_properties_get(props, "diag_status"), advanced);
 
 	UNUSED_PARAMETER(p);
 	return true;
@@ -616,12 +626,12 @@ static bool reset_clicked(obs_properties_t *props, obs_property_t *p, void *data
 	return true;
 }
 
-static bool match_clicked(obs_properties_t *props, obs_property_t *p, void *data)
+static bool validate_accuracy_clicked(obs_properties_t *props, obs_property_t *p, void *data)
 {
 	struct neutral_balance *f = data;
 
 	if (!f->has_measurement) {
-		blog(LOG_INFO, "[neutral-balance] Match Darktable: no measurement yet");
+		blog(LOG_INFO, "[neutral-balance] Validate Accuracy: no measurement yet");
 		return false;
 	}
 
@@ -642,12 +652,18 @@ static obs_properties_t *nb_properties(void *data)
 	obs_properties_add_text(props, "ws_status", obs_module_text("WorkingSpace"), OBS_TEXT_INFO);
 	obs_properties_add_text(props, "range_status", obs_module_text("VideoRange"), OBS_TEXT_INFO);
 
+	obs_properties_add_bool(props, "show_split", obs_module_text("ShowSplit"));
+	obs_properties_add_bool(props, "advanced_mode", obs_module_text("AdvancedMode"));
+
 	obs_property_t *method = obs_properties_add_list(props, "method", obs_module_text("Method"),
 							 OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 	obs_property_list_add_int(method, obs_module_text("Method.GreyWorld"), NB_METHOD_GREY_WORLD);
 	obs_property_list_add_int(method, obs_module_text("Method.ShadesOfGrey"), NB_METHOD_SHADES_OF_GREY);
 	obs_property_list_add_int(method, obs_module_text("Method.Manual"), NB_METHOD_MANUAL);
-	obs_property_set_modified_callback(method, method_modified);
+	obs_property_set_modified_callback(method, props_modified);
+
+	obs_property_t *advanced = obs_properties_get(props, "advanced_mode");
+	obs_property_set_modified_callback(advanced, props_modified);
 
 	obs_property_t *cat = obs_properties_add_list(props, "cat_method", obs_module_text("CatMethod"),
 						      OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
@@ -670,13 +686,12 @@ static obs_properties_t *nb_properties(void *data)
 					0.5);
 	obs_properties_add_float_slider(props, "target_chroma", obs_module_text("TargetChroma"), 0.0, 100.0, 0.5);
 
-	obs_properties_add_bool(props, "show_split", obs_module_text("ShowSplit"));
-	obs_properties_add_button(props, "match_darktable", obs_module_text("MatchDarktable"), match_clicked);
+	obs_properties_add_button(props, "validate_accuracy", obs_module_text("ValidateAccuracy"), validate_accuracy_clicked);
 	obs_properties_add_button(props, "reset", obs_module_text("Reset"), reset_clicked);
 	obs_properties_add_text(props, "diag_status", obs_module_text("Diagnostics"), OBS_TEXT_INFO);
 
 	obs_data_t *settings = f ? obs_source_get_settings(f->context) : NULL;
-	method_modified(props, method, settings);
+	props_modified(props, method, settings);
 	if (settings)
 		obs_data_release(settings);
 
