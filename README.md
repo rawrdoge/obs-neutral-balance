@@ -1,6 +1,6 @@
 # obs-neutral-balance
 
-Format-aware, linear-light, chromatic-adaptation white balance filter for OBS Studio, modeled on darktable's color calibration measure-and-correct workflow. v2.0.1.
+Format-aware, linear-light, chromatic-adaptation white balance filter for OBS Studio, modeled on darktable's color calibration measure-and-correct workflow. v2.1.
 
 ## Features
 
